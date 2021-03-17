@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Exclude data dirs
+data
+
+# Exclude idea
+.idea
