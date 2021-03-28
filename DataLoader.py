@@ -14,6 +14,13 @@ from helpers import write_log
 
 
 class DataLoader:
+    """
+    Class responsible for loading the data
+    - Can generate the Custom_Timit dataset by merging wav files from Timit
+    - Can load the dataset from the generated file system dir
+    - Can load the dataset from filesystems npy file (for testing purposes)
+
+    """
     # Location of data
     train_src_dir: str
     test_src_dir: str
@@ -22,7 +29,7 @@ class DataLoader:
     train_dest_dir: str
     test_dest_dir: str
 
-    # Create wav files of 1 - 20 concurrent speakers
+    # Create wav files of 2 - 20 concurrent speakers
     min_speakers = 2
     max_speakers = 20
 
@@ -32,7 +39,20 @@ class DataLoader:
     # Pad to and cut of at five seconds, during dataset generation
     pad_to = sampled_at * 5
 
+    # If true, the dataset will be saved to .npy files after its loaded
+    save_to_file = False
+
+    # If true, the dataset will not be loaded from wav files, but from .npy files
+    load_from_file = True
+
     def __init__(self, train_src_dir: str, test_src_dr: str, train_dest_dir: str, test_dest_dir: str):
+        """
+        Save the src and dest dir
+        :param train_src_dir: Dir that contains the original Timit files
+        :param test_src_dr: Dir that contains the original Timit files
+        :param train_dest_dir: Dir that will contain the generated merged wav files
+        :param test_dest_dir:  Dir that will contain the generated merged wav files
+        """
         self.train_src_dir = train_src_dir
         self.test_src_dir = test_src_dr
         self.train_dest_dir = train_dest_dir
@@ -41,17 +61,23 @@ class DataLoader:
     def load_data(self, force_recreate=False):
         """
         Load data from train_dest_dir and test_dest_dir.
-        If dirs do not exist, generate data
+        - If self.load_from_file, load dataset from .npy files instead
+        - If dest dirs do not exist, generated meged wav files
         :param force_recreate: If true, always regenerate data, even if dirs already exist
         :return train_x, train_y, test_x, test_y
         """
-        if force_recreate or not (os.path.exists(self.train_dest_dir) and os.path.exists(self.test_dest_dir)):
+        if force_recreate:
+            self.__generate_datasets()
+        if self.load_from_file:
+            return self.__load_from_file()
+        if not os.path.exists(self.train_dest_dir) or not os.path.exists(self.test_dest_dir):
             self.__generate_datasets()
         return self.__load_datasets()
 
     def __load_datasets(self):
         """
         Load datasets into memory
+        - Save them to .npy files if self.save_to_file
         :return train_x, train_y, test_x, test_y
         """
         write_log('Loading data')
@@ -80,7 +106,43 @@ class DataLoader:
         train_x, train_y = sklearn.utils.shuffle(train_x, train_y)
         test_x, test_y = sklearn.utils.shuffle(test_x, test_y)
         write_log('Data loaded')
+        # Save to file if desired
+        if self.save_to_file:
+            self.__save_to_file(train_x, train_y, test_x, test_y)
         return train_x, train_y, test_x, test_y
+
+    def __load_from_file(self):
+        """
+        Instead of generating the data, load it from filesystem
+        :return:  The data
+        """
+        write_log('Loading data from filesystem')
+        sets = ['train_x', 'train_y', 'test_x', 'test_y']
+        # For each set, try to load it and set as attr on self
+        for set in sets:
+            filename = f'{set}.npy'
+            # If any file is not found, raise an error
+            if not os.path.exists(filename):
+                raise FileNotFoundError(filename)
+            setattr(self, set, np.load(filename))
+        # Return sets as tuple
+        write_log('Data loaded')
+        return map(tuple, [getattr(self, set) for set in sets])
+
+    @staticmethod
+    def __save_to_file(train_x, train_y, test_x, test_y):
+        """
+        Save loaded data to files
+        :param train_x:
+        :param train_y:
+        :param test_x:
+        :param test_y:
+        """
+        write_log('Saving data to filesystem')
+        np.save('train_x.npy', train_x)
+        np.save('train_y.npy', train_y)
+        np.save('test_x.npy', test_x)
+        np.save('test_y.npy', test_y)
 
     def __generate_datasets(self):
         """
