@@ -3,17 +3,18 @@ from datetime import datetime
 import librosa
 import numpy as np
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import normalize
+import tensorflow.keras.backend as K
 import tensorflow_probability as tfp
+from sklearn.model_selection import train_test_split
+from tensorflow.python.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.python.keras.optimizer_v2.adam import Adam
-from sklearn.preprocessing import Normalizer
 
 from helpers import write_log
 
 tfd = tfp.distributions
-from tensorflow.keras.layers import Dense, BatchNormalization, LeakyReLU, InputLayer, Bidirectional, LSTM, MaxPool1D, GlobalMaxPool1D
+from tensorflow.keras.layers import Dense, InputLayer, Bidirectional, LSTM, GlobalMaxPool1D
 from tensorflow.keras.models import Sequential
+from scipy.stats import poisson
 
 
 class RNN:
@@ -35,36 +36,63 @@ class RNN:
     # 501 * 40
     input_size = (int(sample_rate * seconds_per_record / n_overlap) + 1, num_mel_filters)
 
-    batch_size = 8
-    num_epochs = 50
+    batch_size = 64
+    num_epochs = 40
     tensorboard_log = f'./tensorboard/{datetime.now().strftime("%m-%d %H:%M")}/'
+
+    # Training callbacks
+    callbacks: []
+
+    # If is set, save model to the filename after training
+    save_to_file: str = None
+
+    # The trained network
+    __net = None
+
+    def __init__(self):
+        tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.tensorboard_log)
+        early_stopping = es = EarlyStopping(patience=15, verbose=1)
+        reduce_lr_on_plateau = ReduceLROnPlateau(factor=.4, patience=4, verbose=1)
+        self.callbacks = [tensorboard, early_stopping, reduce_lr_on_plateau]
+
+    def load_from_file(self, file):
+        """
+        Load the network from filesystem
+        :param file: The file path
+        """
+        self.__net = tf.keras.models.load_model(file)
 
     def get_net(self):
         """
         Get the network. We use a BiLSTM as described by Stöter et al.
-        :return:
+        Input shape: [batch_size, time_steps, n_features]
+        :return: The net
         """
         net = Sequential()
-        net.add(InputLayer(input_shape=self.input_size, batch_size=self.batch_size))
-        net.add(Bidirectional(LSTM(30, activation='relu', return_sequences=True)))
-        net.add(Bidirectional(LSTM(20, activation='relu', return_sequences=True)))
-        net.add(Bidirectional(LSTM(40, activation='relu', return_sequences=True)))
-        net.add(GlobalMaxPool1D())
-        net.add(Dense(40, activation='relu'))
-        net.add(Dense(1, activation='exponential'))
+        net.add(InputLayer(input_shape=self.input_size))
+        net.add(Bidirectional(LSTM(30, activation='tanh', return_sequences=True, dropout=0.5)))
+        net.add(Bidirectional(LSTM(20, activation='tanh', return_sequences=True, dropout=0.5)))
+        net.add(Bidirectional(LSTM(40, activation='tanh', return_sequences=False, dropout=0.5)))
+
+        # net.add(GlobalMaxPool1D())
+        net.add(Dense(20, activation='relu'))
         # The network predicts scale parameter \lambda for the poisson distribution
-        net.add(tfp.layers.DistributionLambda(tfp.distributions.Poisson))
+        net.add(Dense(1, activation='exponential'))
+        print(net.summary())
         return net
 
     @staticmethod
-    def loss(y_true, y_hat):
+    def poisson(y_true, y_hat):
         """
-        Since we are predicting a Poisson distribution, our loss function is the negative log likelihood function
-        :param y_true:
-        :param y_hat:
+        Since we are predicting a Poisson distribution, our loss function is the poisson loss
+        :param y_true: Number of speakers
+        :param y_hat: Lambda for poisson
         :return:
         """
-        return -y_hat.log_prob(y_true)
+        theta = tf.cast(y_hat, tf.float32)
+        y = tf.cast(y_true, tf.float32)
+        loss = K.mean(theta - y * K.log(theta + K.epsilon()))
+        return loss
 
     def train(self, x, y):
         """
@@ -76,26 +104,29 @@ class RNN:
         :param y:
         """
         x = self.__preprocess(x)
-        y = np.array(y, dtype=float)
-        x = x.reshape(x.shape[0], x.shape[2], x.shape[1])
-        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=.2)
+        y = np.array(y).astype(int)
+
+        # Split and create DataSets
+        x_train, x_validation, y_train, y_validation = train_test_split(x, y, test_size=.2)
         train_iter = tf.data.Dataset.from_tensor_slices((x_train, y_train)).batch(self.batch_size)
-        test_iter = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(self.batch_size)
-        tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.tensorboard_log)
+        validation_iter = tf.data.Dataset.from_tensor_slices((x_validation, y_validation)).batch(self.batch_size)
 
         net = self.get_net()
         optimizer = Adam(learning_rate=.001)
-        net.compile(loss=self.loss, optimizer=optimizer, metrics=['accuracy'])
+        net.compile(loss=self.poisson, optimizer=optimizer, metrics=[tf.keras.metrics.MeanAbsoluteError()])
         write_log('Training model')
         history = net.fit(
             train_iter,
-            validation_data=test_iter,
+            validation_data=validation_iter,
             epochs=self.num_epochs,
             verbose=1,
-            callbacks=[tensorboard_callback],
+            callbacks=self.callbacks,
         )
         write_log('Model trained')
-        pass
+        if self.save_to_file is not None:
+            net.save(self.save_to_file)
+            write_log('Trained model saved to ' + self.save_to_file)
+        self.__net = net
 
     def __preprocess(self, X):
         """
@@ -109,7 +140,26 @@ class RNN:
         write_log('Preprocessing data')
         stft = np.abs([librosa.stft(np.array(x, dtype=float), n_fft=self.frame_length, hop_length=self.n_overlap) for x in X])
         stft = librosa.util.normalize(stft)
-        mel = [librosa.feature.melspectrogram(S=x, sr=self.sample_rate, n_fft=self.frame_length, hop_length=self.n_overlap, n_mels=self.num_mel_filters) for x in stft]
-        mel = np.log(mel)
+        mel = np.array([librosa.feature.melspectrogram(S=x, sr=self.sample_rate, n_fft=self.frame_length, hop_length=self.n_overlap, n_mels=self.num_mel_filters) for x in stft])
+        # Reshape to [batch_size, time_steps, n_features]
+        mel = mel.reshape((mel.shape[0], mel.shape[2], mel.shape[1]))
         write_log('Data preprocessed')
         return mel
+
+    def test(self, X, Y):
+        """
+        Test the network, and print the predictions to stdout
+        :param X: The test data set
+        :param Y: The labels
+        """
+        if self.__net is None:
+            write_log('Cannot test the network, as it is not initialized. Please train your model, or load it from filesystem', True, True)
+        write_log('Testing network')
+        X = self.__preprocess(X)
+        Y_hat = self.__net.predict(X)
+        for (y_hat, y) in zip(Y_hat, Y):
+            # Reshape to [1, time_steps, n_features]
+            distribution = poisson(y_hat)
+            prediction = int(distribution.median())
+            print(f'Predicted {prediction:02d} for {y:02d} (difference of {abs(prediction - y)})')
+        write_log('Network tested')

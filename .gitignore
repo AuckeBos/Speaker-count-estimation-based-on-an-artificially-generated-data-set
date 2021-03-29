@@ -133,3 +133,5 @@ data
 
 # Exclude idea
 .idea
+tensorboard
+*.npy

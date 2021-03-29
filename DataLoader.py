@@ -80,7 +80,7 @@ class DataLoader:
         - Save them to .npy files if self.save_to_file
         :return train_x, train_y, test_x, test_y
         """
-        write_log('Loading data')
+        write_log('Loading data from WAVs')
         train_x, train_y, test_x, test_y = [], [], [], []
         for y in range(self.min_speakers, self.max_speakers + 1):
             train_dir = f'{self.train_dest_dir}/{y}'
@@ -116,7 +116,7 @@ class DataLoader:
         Instead of generating the data, load it from filesystem
         :return:  The data
         """
-        write_log('Loading data from filesystem')
+        write_log('Loading data from npy files')
         sets = ['train_x', 'train_y', 'test_x', 'test_y']
         # For each set, try to load it and set as attr on self
         for set in sets:
@@ -138,11 +138,11 @@ class DataLoader:
         :param test_x:
         :param test_y:
         """
-        write_log('Saving data to filesystem')
         np.save('train_x.npy', train_x)
         np.save('train_y.npy', train_y)
         np.save('test_x.npy', test_x)
         np.save('test_y.npy', test_y)
+        write_log('Data saved to npy files')
 
     def __generate_datasets(self):
         """
