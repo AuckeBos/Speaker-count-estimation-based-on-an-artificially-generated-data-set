@@ -51,7 +51,7 @@ class RNN:
 
     def __init__(self):
         tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.tensorboard_log)
-        early_stopping = es = EarlyStopping(patience=15, verbose=1)
+        early_stopping = es = EarlyStopping(patience=10, verbose=1)
         reduce_lr_on_plateau = ReduceLROnPlateau(factor=.4, patience=4, verbose=1)
         self.callbacks = [tensorboard, early_stopping, reduce_lr_on_plateau]
 
@@ -124,8 +124,8 @@ class RNN:
         )
         write_log('Model trained')
         if self.save_to_file is not None:
+            write_log('Saving model to ' + self.save_to_file)
             net.save(self.save_to_file)
-            write_log('Trained model saved to ' + self.save_to_file)
         self.__net = net
 
     def __preprocess(self, X):
@@ -158,7 +158,6 @@ class RNN:
         X = self.__preprocess(X)
         Y_hat = self.__net.predict(X)
         for (y_hat, y) in zip(Y_hat, Y):
-            # Reshape to [1, time_steps, n_features]
             distribution = poisson(y_hat)
             prediction = int(distribution.median())
             print(f'Predicted {prediction:02d} for {y:02d} (difference of {abs(prediction - y)})')
