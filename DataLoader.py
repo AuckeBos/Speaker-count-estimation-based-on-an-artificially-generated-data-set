@@ -10,7 +10,7 @@ from pathlib import Path
 from pydub import AudioSegment
 import sklearn
 from pydub import AudioSegment, effects
-
+import os
 from helpers import write_log
 
 
@@ -81,6 +81,42 @@ class DataLoader:
             self.__generate_datasets()
         return self.__load_datasets()
 
+    def load_libricount(self, dir: str):
+        write_log('Loading LibriCount')
+        files = glob.glob(dir + '/*.wav')
+        X, Y = [], []
+        for file in files:
+            filename = os.path.basename(file)
+            y = filename[0]
+            # Skip empty files
+            if y == 0:
+                break
+            Y.append(int(y))
+            _, x = wavfile.read(file)
+            X.append(x)
+
+        # Pad to and cut off
+        X = self.__pad(X)
+        Y = np.array(Y)
+
+        # Shuffle
+        X, Y = sklearn.utils.shuffle(X, Y)
+        write_log('Data loaded')
+        # Save to file if desired
+        if self.save_to_file:
+            np.save('libri_x.npy', X)
+            np.save('libri_y.npy', Y)
+            write_log('Libri saved to npy files')
+        return X, Y
+
+    def __pad(self, data):
+        """
+        Pad and cut off to self.pad_to
+        :param data:
+        :return:
+        """
+        return np.array([np.pad(x, (0, max(self.pad_to - len(x), 0)))[:self.pad_to] for x in data])
+
     def __load_datasets(self):
         """
         Load datasets into memory
@@ -105,8 +141,8 @@ class DataLoader:
             test_x.extend(current_test_x)
             test_y.extend(current_test_y)
         # Pad to and cut off
-        train_x = np.array([np.pad(x, (0, max(self.pad_to - len(x), 0)))[:self.pad_to] for x in train_x])
-        test_x = np.array([np.pad(x, (0, max(self.pad_to - len(x), 0)))[:self.pad_to] for x in test_x])
+        train_x = self.__pad(train_x)
+        test_x = self.__pad(test_x)
         train_y, test_y = np.array(train_y), np.array(test_y)
 
         # Shuffle

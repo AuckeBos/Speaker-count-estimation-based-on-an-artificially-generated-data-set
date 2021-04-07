@@ -121,6 +121,17 @@ class RNN:
         loss = K.mean(theta - y * K.log(theta + K.epsilon()))
         return loss
 
+    def compile_net(self):
+        """
+        Get the network and compile and save it
+        :return:
+        """
+        net = self.get_net()
+        optimizer = Adam(learning_rate=.001)
+        net.compile(loss=self.poisson, optimizer=optimizer, metrics=[tf.keras.metrics.MeanAbsoluteError()])
+        self.__net = net
+        return self.__net
+
     def train(self, x, y):
         """
         Train the network, eg
@@ -133,14 +144,13 @@ class RNN:
         x = self.__preprocess(x)
         y = np.array(y).astype(int)
 
+        net = self.compile_net()
+
         # Split and create DataSets
         x_train, x_validation, y_train, y_validation = train_test_split(x, y, test_size=.2, random_state=self.random_state)
         train_iter = tf.data.Dataset.from_tensor_slices((x_train, y_train)).batch(self.batch_size)
         validation_iter = tf.data.Dataset.from_tensor_slices((x_validation, y_validation)).batch(self.batch_size)
 
-        net = self.get_net()
-        optimizer = Adam(learning_rate=.001)
-        net.compile(loss=self.poisson, optimizer=optimizer, metrics=[tf.keras.metrics.MeanAbsoluteError()])
         write_log('Training model')
         history = net.fit(
             train_iter,
@@ -150,7 +160,6 @@ class RNN:
             callbacks=self.callbacks,
         )
         write_log('Model trained')
-        self.__net = net
 
     def __preprocess(self, X):
         """
@@ -189,4 +198,4 @@ class RNN:
         for (y_hat, y) in zip(predictions, Y):
             print(f'Predicted {y_hat:02d} for {y:02d} (difference of {abs(y_hat - y)})')
         error = mean_absolute_error(Y, predictions)
-        write_log('MAE: ' + error)
+        write_log(f'MAE: {error}')
