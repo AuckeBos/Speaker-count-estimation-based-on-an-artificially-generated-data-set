@@ -9,6 +9,7 @@ import glob
 from pathlib import Path
 from pydub import AudioSegment
 import sklearn
+from pydub import AudioSegment, effects
 
 from helpers import write_log
 
@@ -45,6 +46,12 @@ class DataLoader:
     # If true, the dataset will not be loaded from wav files, but from .npy files
     load_from_file = True
 
+    # If true, always regenerate data, even if dirs already exist
+    force_recreate = True
+
+    # To reproduce
+    random_state = 1337
+
     def __init__(self, train_src_dir: str, test_src_dr: str, train_dest_dir: str, test_dest_dir: str):
         """
         Save the src and dest dir
@@ -58,15 +65,15 @@ class DataLoader:
         self.train_dest_dir = train_dest_dir
         self.test_dest_dir = test_dest_dir
 
-    def load_data(self, force_recreate=False):
+    def load_data(self):
         """
         Load data from train_dest_dir and test_dest_dir.
         - If self.load_from_file, load dataset from .npy files instead
         - If dest dirs do not exist, generated meged wav files
-        :param force_recreate: If true, always regenerate data, even if dirs already exist
+        :param force_recreate:
         :return train_x, train_y, test_x, test_y
         """
-        if force_recreate:
+        if self.force_recreate:
             self.__generate_datasets()
         if self.load_from_file:
             return self.__load_from_file()
@@ -87,7 +94,7 @@ class DataLoader:
             test_dir = f'{self.test_dest_dir}/{y}'
             train_files = glob.glob(train_dir + '/*.wav')
             test_files = glob.glob(test_dir + '/*.wav')
-
+            wavfile
             current_train_x = [np.sum(record, axis=1) for (_, record) in [wavfile.read(wav) for wav in train_files]]
             current_train_y = [y] * len(current_train_x)
             current_test_x = [np.sum(record, axis=1) for (_, record) in [wavfile.read(wav) for wav in test_files]]
@@ -155,6 +162,7 @@ class DataLoader:
             num_records_per_count = len(files) // self.max_speakers
             data = [record for (_, record) in [wavfile.read(wav) for wav in files]]
             for i in range(self.min_speakers, self.max_speakers + 1):
+                write_log(f'Generating files for {i} concurrent speakers')
                 self.__create_concurrent_speakers(data, dest_dir, i, num_records_per_count, shuffle)
         write_log('Data generated')
 
@@ -171,9 +179,9 @@ class DataLoader:
         dest_dir += f'/{num_speakers}'
         Path(dest_dir).mkdir(parents=True, exist_ok=True)
         if shuffle:
-            random.shuffle(train)
+            random.Random(self.random_state).shuffle(train)
         # Generate partitions of length num_speakers
-        partitions = [np.array(train[i:i + num_speakers]) for i in range(0, num_records * num_speakers, num_speakers)]
+        partitions = [train[i:i + num_speakers] for i in range(0, num_records * num_speakers, num_speakers)]
 
         for i, partition in enumerate(partitions):
             # Pad to size of longest file
@@ -182,3 +190,8 @@ class DataLoader:
             dest_filename = f'{dest_dir}/{i}.wav'
             with open(dest_filename, 'wb+') as dest_file:
                 wavfile.write(dest_file, self.sampled_at, partition.T)
+
+            # Normlize the resulting wav file, to avoid clipping
+            # wav = AudioSegment.from_file(dest_filename)
+            # wav = effects.normalize(wav)
+            # wav.export(dest_filename)

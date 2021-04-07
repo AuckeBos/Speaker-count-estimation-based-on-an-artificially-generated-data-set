@@ -6,7 +6,8 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 import tensorflow_probability as tfp
 from sklearn.model_selection import train_test_split
-from tensorflow.python.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from sklearn.metrics import mean_absolute_error
+from tensorflow.python.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.python.keras.optimizer_v2.adam import Adam
 
 from helpers import write_log
@@ -24,8 +25,12 @@ class RNN:
     # 5 seconds per file, at 16KhZ
     seconds_per_record = 5
     sample_rate = 16000
+
     # Create 40 mel filters
     num_mel_filters = 40
+
+    # If using MFCC, take coefficients 1-13
+    num_coefficients = 12
 
     # Use a frame length of 25ms
     frame_length = int(sample_rate * 0.025)
@@ -33,21 +38,27 @@ class RNN:
     # Use overlap of 10ms
     n_overlap = int(sample_rate * 0.01)
 
-    # 501 * 40
+    # 501 * num_mel_filters
     input_size = (int(sample_rate * seconds_per_record / n_overlap) + 1, num_mel_filters)
 
     batch_size = 64
-    num_epochs = 40
+    num_epochs = 60
     tensorboard_log = f'./tensorboard/{datetime.now().strftime("%m-%d %H:%M")}/'
 
     # Training callbacks
     callbacks: []
 
     # If is set, save model to the filename after training
-    save_to_file: str = None
+    __save_to_file: str = None
 
     # The trained network
     __net = None
+
+    # If true, use MFCC 1-12. If false, use STFT
+    __use_mfcc = False
+
+    # To reproduce
+    random_state = 1000
 
     def __init__(self):
         tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.tensorboard_log)
@@ -81,6 +92,22 @@ class RNN:
         print(net.summary())
         return net
 
+    def use_mfcc(self):
+        """
+        Set use_mfcc = true. Also update self.input_size to match new size (since we now have num_coefficients features per frame, instead of num_filters)
+        """
+        self.__use_mfcc = True
+        self.input_size = (self.input_size[0], self.num_coefficients)
+
+    def save_to_file(self, file):
+        """
+        Set the filename to save our best performing model to
+        Also add callback to save the best model
+        :param file:
+        """
+        self.__save_to_file = file
+        self.callbacks.append(ModelCheckpoint(file, save_best_only=True))
+
     @staticmethod
     def poisson(y_true, y_hat):
         """
@@ -107,7 +134,7 @@ class RNN:
         y = np.array(y).astype(int)
 
         # Split and create DataSets
-        x_train, x_validation, y_train, y_validation = train_test_split(x, y, test_size=.2)
+        x_train, x_validation, y_train, y_validation = train_test_split(x, y, test_size=.2, random_state=self.random_state)
         train_iter = tf.data.Dataset.from_tensor_slices((x_train, y_train)).batch(self.batch_size)
         validation_iter = tf.data.Dataset.from_tensor_slices((x_validation, y_validation)).batch(self.batch_size)
 
@@ -123,9 +150,6 @@ class RNN:
             callbacks=self.callbacks,
         )
         write_log('Model trained')
-        if self.save_to_file is not None:
-            write_log('Saving model to ' + self.save_to_file)
-            net.save(self.save_to_file)
         self.__net = net
 
     def __preprocess(self, X):
@@ -140,11 +164,14 @@ class RNN:
         write_log('Preprocessing data')
         stft = np.abs([librosa.stft(np.array(x, dtype=float), n_fft=self.frame_length, hop_length=self.n_overlap) for x in X])
         stft = librosa.util.normalize(stft)
-        mel = np.array([librosa.feature.melspectrogram(S=x, sr=self.sample_rate, n_fft=self.frame_length, hop_length=self.n_overlap, n_mels=self.num_mel_filters) for x in stft])
+        features = np.array([librosa.feature.melspectrogram(S=x, sr=self.sample_rate, n_fft=self.frame_length, hop_length=self.n_overlap, n_mels=self.num_mel_filters) for x in stft])
+        if self.__use_mfcc:
+            features = np.array([librosa.feature.mfcc(S=x, sr=self.sample_rate, n_mfcc=self.num_coefficients + 1)[1:] for x in features])
+
         # Reshape to [batch_size, time_steps, n_features]
-        mel = mel.reshape((mel.shape[0], mel.shape[2], mel.shape[1]))
+        features = features.reshape((features.shape[0], features.shape[2], features.shape[1]))
         write_log('Data preprocessed')
-        return mel
+        return features
 
     def test(self, X, Y):
         """
@@ -157,8 +184,9 @@ class RNN:
         write_log('Testing network')
         X = self.__preprocess(X)
         Y_hat = self.__net.predict(X)
-        for (y_hat, y) in zip(Y_hat, Y):
-            distribution = poisson(y_hat)
-            prediction = int(distribution.median())
-            print(f'Predicted {prediction:02d} for {y:02d} (difference of {abs(prediction - y)})')
-        write_log('Network tested')
+        # Convert predictions to int: take median of poisson distribution
+        predictions = [int(poisson(y_hat).median()) for y_hat in Y_hat]
+        for (y_hat, y) in zip(predictions, Y):
+            print(f'Predicted {y_hat:02d} for {y:02d} (difference of {abs(y_hat - y)})')
+        error = mean_absolute_error(Y, predictions)
+        write_log('MAE: ' + error)
