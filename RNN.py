@@ -83,9 +83,9 @@ class RNN:
         net.add(InputLayer(input_shape=self.input_size))
         net.add(Bidirectional(LSTM(30, activation='tanh', return_sequences=True, dropout=0.5)))
         net.add(Bidirectional(LSTM(20, activation='tanh', return_sequences=True, dropout=0.5)))
-        net.add(Bidirectional(LSTM(40, activation='tanh', return_sequences=False, dropout=0.5)))
+        net.add(Bidirectional(LSTM(40, activation='tanh', return_sequences=True, dropout=0.5)))
 
-        # net.add(GlobalMaxPool1D())
+        net.add(GlobalMaxPool1D())
         net.add(Dense(20, activation='relu'))
         # The network predicts scale parameter \lambda for the poisson distribution
         net.add(Dense(1, activation='exponential'))

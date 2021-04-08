@@ -32,7 +32,7 @@ class DataLoader:
 
     # Create wav files of 2 - 20 concurrent speakers
     min_speakers = 2
-    max_speakers = 20
+    max_speakers = 5
 
     # Files are sampled at 16kHz
     sampled_at = 16000
@@ -87,11 +87,11 @@ class DataLoader:
         X, Y = [], []
         for file in files:
             filename = os.path.basename(file)
-            y = filename[0]
+            y = int(filename[0])
             # Skip empty files
-            if y == 0:
-                break
-            Y.append(int(y))
+            if y == 0 or y > 5:
+                continue
+            Y.append(y)
             _, x = wavfile.read(file)
             X.append(x)
 
@@ -130,7 +130,6 @@ class DataLoader:
             test_dir = f'{self.test_dest_dir}/{y}'
             train_files = glob.glob(train_dir + '/*.wav')
             test_files = glob.glob(test_dir + '/*.wav')
-            wavfile
             current_train_x = [np.sum(record, axis=1) for (_, record) in [wavfile.read(wav) for wav in train_files]]
             current_train_y = [y] * len(current_train_x)
             current_test_x = [np.sum(record, axis=1) for (_, record) in [wavfile.read(wav) for wav in test_files]]
