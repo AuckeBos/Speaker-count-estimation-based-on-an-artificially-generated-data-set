@@ -28,6 +28,8 @@ class Experimenter:
         - Save results to json
         :return:
         """
+        # Todo: use multithreader
+        # https://stackoverflow.com/questions/56344611/how-can-take-advantage-of-multiprocessing-and-multithreading-in-deep-learning-us
         experiments = {}
         train_x_max_10, train_y_max_10, test_x_max_10, test_y_max_10 = self.__load_timit(1, 10)
         train_x_max_20, train_y_max_20, test_x_max_20, test_y_max_20 = self.__load_timit(1, 20)
