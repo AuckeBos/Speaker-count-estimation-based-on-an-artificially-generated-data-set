@@ -16,8 +16,9 @@ if __name__ == '__main__':
     train_x, train_y, test_x, test_y = data_loader.load_data()
     # libri_x, libri_y = data_loader.load_libricount('./data/LibriCount/test')
     # Train network
-    file = 'rnn_max_5_speakers_with_maxpool'
+    file = 'rnn_test'
     net = RNN()
+    net.set_feature_type(RNN.FEATURE_TYPE_MFCC)
     # net.use_mfcc()
     # net.save_to_file(file)
     # net.save_to_file = file
