@@ -46,7 +46,7 @@ class RNN:
 
     # Training configuration
     batch_size = 64
-    num_epochs = 2
+    num_epochs = 80
     tensorboard_log = f'./tensorboard/{datetime.now().strftime("%m-%d %H:%M")}/'
 
     # Training callbacks
@@ -81,8 +81,8 @@ class RNN:
 
     def __init__(self):
         tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.tensorboard_log)
-        early_stopping = EarlyStopping(patience=10, verbose=1)
-        reduce_lr_on_plateau = ReduceLROnPlateau(factor=.4, patience=4, verbose=1)
+        early_stopping = EarlyStopping(patience=10, verbose=1, monitor='val_mean_absolute_error', mode='min')
+        reduce_lr_on_plateau = ReduceLROnPlateau(factor=.4, patience=4, verbose=1, monitor='val_mean_absolute_error', mode='min')
         timing = TimingCallback()
         self.callbacks = [tensorboard, early_stopping, reduce_lr_on_plateau, timing]
 
@@ -151,7 +151,7 @@ class RNN:
         :param file:
         """
         self.__save_to_file = file
-        self.callbacks.append(ModelCheckpoint(file, save_best_only=True))
+        self.callbacks.append(ModelCheckpoint(file, save_best_only=True, monitor='val_mean_absolute_error', mode='min'))
 
     @staticmethod
     def poisson(y_true, y_hat):
@@ -290,7 +290,7 @@ class RNN:
             errors[speaker_count] = error
 
         for max_count in [10, 20]:
-            indices = np.argwhere(np.logical_and(Y>=1, Y<=max_count))
+            indices = np.argwhere(np.logical_and(Y >= 1, Y <= max_count))
             errors[f'1_to_{max_count}'] = mean_absolute_error(Y[indices], predictions[indices])
         errors['mean'] = mean_absolute_error(Y, predictions)
         return errors
