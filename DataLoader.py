@@ -30,9 +30,9 @@ class DataLoader:
     train_dest_dir: str
     test_dest_dir: str
 
-    # Create wav files of 2 - 20 concurrent speakers
-    min_speakers = 2
-    max_speakers = 5
+    # Create wav files of min_speakers - max_speakers concurrent speakers
+    min_speakers = 1
+    max_speakers = 20
 
     # Files are sampled at 16kHz
     sampled_at = 16000
@@ -44,10 +44,10 @@ class DataLoader:
     save_to_file = False
 
     # If true, the dataset will not be loaded from wav files, but from .npy files
-    load_from_file = True
+    load_from_file = False
 
     # If true, always regenerate data, even if dirs already exist
-    force_recreate = True
+    force_recreate = False
 
     # To reproduce
     random_state = 1337
@@ -81,41 +81,38 @@ class DataLoader:
             self.__generate_datasets()
         return self.__load_datasets()
 
-    def load_libricount(self, dir: str):
+    @staticmethod
+    def load_libricount(dir: str):
         write_log('Loading LibriCount')
         files = glob.glob(dir + '/*.wav')
         X, Y = [], []
         for file in files:
             filename = os.path.basename(file)
             y = int(filename[0])
-            # Skip empty files
-            if y == 0 or y > 5:
+            # Skip recordings w/0 speakers
+            if y == 0:
                 continue
             Y.append(y)
             _, x = wavfile.read(file)
             X.append(x)
 
         # Pad to and cut off
-        X = self.__pad(X)
+        X = DataLoader.__pad(X)
         Y = np.array(Y)
 
         # Shuffle
-        X, Y = sklearn.utils.shuffle(X, Y)
+        X, Y = sklearn.utils.shuffle(X, Y, random_state=DataLoader.random_state)
         write_log('Data loaded')
-        # Save to file if desired
-        if self.save_to_file:
-            np.save('libri_x.npy', X)
-            np.save('libri_y.npy', Y)
-            write_log('Libri saved to npy files')
         return X, Y
 
-    def __pad(self, data):
+    @staticmethod
+    def __pad(data):
         """
         Pad and cut off to self.pad_to
         :param data:
         :return:
         """
-        return np.array([np.pad(x, (0, max(self.pad_to - len(x), 0)))[:self.pad_to] for x in data])
+        return np.array([np.pad(x, (0, max(DataLoader.pad_to - len(x), 0)))[:DataLoader.pad_to] for x in data])
 
     def __load_datasets(self):
         """
@@ -130,9 +127,15 @@ class DataLoader:
             test_dir = f'{self.test_dest_dir}/{y}'
             train_files = glob.glob(train_dir + '/*.wav')
             test_files = glob.glob(test_dir + '/*.wav')
-            current_train_x = [np.sum(record, axis=1) for (_, record) in [wavfile.read(wav) for wav in train_files]]
+
+            current_train_x = np.array([record for (_, record) in [wavfile.read(wav) for wav in train_files]], dtype='object')
+            current_test_x = np.array([record for (_, record) in [wavfile.read(wav) for wav in test_files]], dtype='object')
+            # True for speaker_count > 1: Sum wave sounds
+            if current_train_x[0].ndim > 1:
+                current_train_x = np.array([np.sum(x, axis=1) for x in current_train_x], dtype='object')
+                current_test_x = np.array([np.sum(x, axis=1) for x in current_test_x], dtype='object')
+
             current_train_y = [y] * len(current_train_x)
-            current_test_x = [np.sum(record, axis=1) for (_, record) in [wavfile.read(wav) for wav in test_files]]
             current_test_y = [y] * len(current_test_x)
 
             train_x.extend(current_train_x)

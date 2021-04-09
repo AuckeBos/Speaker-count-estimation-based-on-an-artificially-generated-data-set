@@ -10,6 +10,7 @@ from sklearn.metrics import mean_absolute_error
 from tensorflow.python.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.python.keras.optimizer_v2.adam import Adam
 
+from TimingCallback import TimingCallback
 from helpers import write_log
 
 tfd = tfp.distributions
@@ -45,7 +46,7 @@ class RNN:
 
     # Training configuration
     batch_size = 64
-    num_epochs = 60
+    num_epochs = 2
     tensorboard_log = f'./tensorboard/{datetime.now().strftime("%m-%d %H:%M")}/'
 
     # Training callbacks
@@ -67,14 +68,23 @@ class RNN:
     FEATURE_TYPE_MEL_40 = 'MEL40'
     FEATURE_TYPE_MFCC = 'MFCC'
 
+    FEATURE_OPTIONS = [
+        FEATURE_TYPE_STFT,
+        FEATURE_TYPE_LOG_STFT,
+        FEATURE_TYPE_MEL_20,
+        FEATURE_TYPE_MEL_40,
+        FEATURE_TYPE_MFCC,
+    ]
+
     # To reproduce
     random_state = 1000
 
     def __init__(self):
         tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.tensorboard_log)
-        early_stopping = es = EarlyStopping(patience=10, verbose=1)
+        early_stopping = EarlyStopping(patience=10, verbose=1)
         reduce_lr_on_plateau = ReduceLROnPlateau(factor=.4, patience=4, verbose=1)
-        self.callbacks = [tensorboard, early_stopping, reduce_lr_on_plateau]
+        timing = TimingCallback()
+        self.callbacks = [tensorboard, early_stopping, reduce_lr_on_plateau, timing]
 
     def load_from_file(self, file):
         """
@@ -99,7 +109,7 @@ class RNN:
         net.add(Dense(20, activation='relu'))
         # The network predicts scale parameter \lambda for the poisson distribution
         net.add(Dense(1, activation='exponential'))
-        print(net.summary())
+
         return net
 
     def set_feature_type(self, type: str):
@@ -130,6 +140,7 @@ class RNN:
             shape = 1 + self.frame_length // 2
         else:
             write_log(f'Feature type {type} is invalid', True, True)
+        write_log(f'Using feature type {type}')
         self.__feature_type = type
         self.input_size = (self.input_size[0], shape)
 
@@ -194,6 +205,7 @@ class RNN:
             verbose=1,
         )
         write_log('Model trained')
+        return net, history
 
     def __use_stft(self):
         """
@@ -252,7 +264,11 @@ class RNN:
 
     def test(self, X, Y):
         """
-        Test the network, and print the predictions to stdout
+        Test the network:
+        - Compute the MAE for each count in Y
+        - Compute MAE where y in [1, 10]
+        - Compute MAE where y in [1, 20]
+        - Compute the MAE over all labels
         :param X: The test data set
         :param Y: The labels
         :return MAE
@@ -262,10 +278,19 @@ class RNN:
         write_log('Testing network')
         X = self.__preprocess(X)
         Y_hat = self.__net.predict(X)
+
         # Convert predictions to int: take median of poisson distribution
-        predictions = [int(poisson(y_hat).median()) for y_hat in Y_hat]
-        for (y_hat, y) in zip(predictions, Y):
-            print(f'Predicted {y_hat:02d} for {y:02d} (difference of {abs(y_hat - y)})')
-        error = mean_absolute_error(Y, predictions)
-        write_log(f'MAE: {error}')
-        return error
+        predictions = np.array([int(poisson(y_hat[0]).median()) for y_hat in Y_hat])
+        errors = {}
+        for speaker_count in range(min(Y), max(Y) + 1):
+            indices_with_count = np.argwhere(Y == speaker_count)
+            y_current = Y[indices_with_count]
+            predictions_current = predictions[indices_with_count]
+            error = mean_absolute_error(y_current, predictions_current)
+            errors[speaker_count] = error
+
+        for max_count in [10, 20]:
+            indices = np.argwhere(np.logical_and(Y>=1, Y<=max_count))
+            errors[f'1_to_{max_count}'] = mean_absolute_error(Y[indices], predictions[indices])
+        errors['mean'] = mean_absolute_error(Y, predictions)
+        return errors
