@@ -15,6 +15,7 @@ stft = "^0.5.2"
 librosa = "^0.8.0"
 python_speech_features = "^0.6"
 tensorflow-probability = "^0.12.1"
+matplotlib = "^3.4.1"
 
 [tool.poetry.dev-dependencies]
 
