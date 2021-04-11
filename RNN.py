@@ -12,6 +12,7 @@ from tensorflow.python.keras.optimizer_v2.adam import Adam
 
 from DataGenerator import DataGenerator
 from TimingCallback import TimingCallback
+from VariableDataGenerator import VariableDataGenerator
 from helpers import write_log
 
 tfd = tfp.distributions
@@ -44,8 +45,8 @@ class RNN:
 
     def __init__(self):
         tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.tensorboard_log)
-        early_stopping = EarlyStopping(patience=10, verbose=1)
-        reduce_lr_on_plateau = ReduceLROnPlateau(factor=.4, patience=4, verbose=1)
+        early_stopping = EarlyStopping(patience=15, verbose=1)
+        reduce_lr_on_plateau = ReduceLROnPlateau(factor=.4, patience=7, verbose=1)
         timing = TimingCallback()
         self.callbacks = [tensorboard, early_stopping, reduce_lr_on_plateau, timing]
 
@@ -129,6 +130,34 @@ class RNN:
         train_generator = DataGenerator(train_x, train_y, self.batch_size, feature_type)
         validation_generator = DataGenerator(validation_x, validation_y, self.batch_size, feature_type)
         return train_generator, validation_generator, train_generator.feature_shape
+
+    def train_variable_batches(self, files: np.ndarray, feature_type: str):
+        """
+        Train the network, eg
+        - Preprocess the data
+        - Train with Adam, negative log likelihood, accuracy metric.
+        - Visualize using Tensorboard
+        :param feature_type:  Feature type to use
+        :param x: List of filenames
+        :param y: List of speakercounts
+        """
+        np.random.shuffle(files)
+        split_index = int(len(files) * .8)
+        train_files = files[:split_index]
+        validation_files = files[split_index:]
+        train_generator = VariableDataGenerator(train_files, self.batch_size, feature_type)
+        validation_generator = VariableDataGenerator(validation_files, self.batch_size, feature_type)
+        net = self.compile_net(train_generator.feature_shape)
+        write_log('Training model')
+        history = net.fit(
+            train_generator,
+            validation_data=validation_generator,
+            epochs=self.num_epochs,
+            callbacks=self.callbacks,
+            verbose=1,
+        )
+        write_log('Model trained')
+        return net, history
 
     def train(self, x: np.ndarray, y: np.ndarray, feature_type: str):
         """
