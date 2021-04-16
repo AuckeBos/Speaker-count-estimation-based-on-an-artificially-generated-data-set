@@ -38,7 +38,7 @@ class Experimenter:
             files = train_data_current['files']
             min_speakers = train_data_current['min_speakers']
             max_speakers = train_data_current['max_speakers']
-            for feature_type in [TrainSetGenerator.FEATURE_TYPE_LOG_STFT]:
+            for feature_type in self.feature_options:
                 experiment_for_feature = {}
                 name = f'./trained_networks_with_generators/rnn_train_{min_speakers}_{max_speakers}/{feature_type}'
                 network, history = self.__train_net(files, min_speakers, max_speakers, feature_type, name)

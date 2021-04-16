@@ -25,8 +25,8 @@ class RNN:
     """
 
     # Training configuration
-    batch_size = 5
-    num_epochs = 5
+    batch_size = 128
+    num_epochs = 80
     tensorboard_log = f'./tensorboard/{datetime.now().strftime("%m-%d %H:%M")}/'
 
     # Training callbacks
