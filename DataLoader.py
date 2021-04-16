@@ -13,15 +13,14 @@ from helpers import write_log
 class DataLoader:
     """
     Class responsible for loading filenames from filesystem
-    - Can generate the CUSTOM_TIMIT dataset by merging wav files from TIMIT
+    - Can generate the CUSTOM_TIMIT dataset by merging wav files from TIMIT. This is used to generate TEST sets.
     - Can load datasets from files. Datasets are simply lists of filenames and a corresponding list of speaker counts
     """
     # Location of data
-    train_src_dir: str
+    train_dir: str
     test_src_dir: str
 
-    # Location of generated data
-    train_dest_dir: str
+    # Location of generated TEST data
     test_dest_dir: str
 
     # Create wav files of min_speakers - max_speakers concurrent speakers
@@ -37,29 +36,25 @@ class DataLoader:
     # To reproduce
     random_state = 1337
 
-    def __init__(self, train_src_dir: str, test_src_dr: str, train_dest_dir: str, test_dest_dir: str):
+    def __init__(self, train_dir: str, test_src_dr: str, test_dest_dir: str):
         """
         Save the src and dest dir
-        :param train_src_dir: Dir that contains the original Timit files
-        :param test_src_dr: Dir that contains the original Timit files
-        :param train_dest_dir: Dir that will contain the generated merged wav files
-        :param test_dest_dir:  Dir that will contain the generated merged wav files
+        :param train_dir: Dir that contains the original Timit train files
+        :param test_src_dr: Dir that contains the original Timit test files
+        :param test_dest_dir:  Dir that will contain the generated merged test wav files
         """
-        self.train_src_dir = train_src_dir
+        self.train_dir = train_dir
         self.test_src_dir = test_src_dr
-        self.train_dest_dir = train_dest_dir
         self.test_dest_dir = test_dest_dir
 
     def load_data(self):
         """
         Load data from train_dest_dir and test_dest_dir.
-        - If self.load_from_file, load dataset from .npy files instead
-        - If dest dirs do not exist, generated meged wav files
-        :param force_recreate:
-        :return train_x, train_y, test_x, test_y
+        - If test dest dir does not exist, generated test set
+        :return train, test_x, test_y
         """
-        if self.force_recreate or not os.path.exists(self.train_dest_dir) or not os.path.exists(self.test_dest_dir):
-            self.__generate_datasets()
+        if self.force_recreate or not os.path.exists(self.test_dest_dir):
+            self.__generate_test_set()
         return self.__load_datasets()
 
     @staticmethod
@@ -86,52 +81,51 @@ class DataLoader:
         Load datasets:
         - Loop over all train and test files
         - Create lists of filenames and speaker counts
-        :return (train_x (filenames), train_y (speaker_counts)), (test_x, test_y)
+        :return train (filenames), (test_x, test_y)
         """
-        train_x, train_y, test_x, test_y = [], [], [], []
+        train = glob.glob(self.train_dir + '/*.WAV')
+        test_x, test_y = [], []
         for y in range(self.min_speakers, self.max_speakers + 1):
-            train_dir = f'{self.train_dest_dir}/{y}'
-            test_dir = f'{self.test_dest_dir}/{y}'
-            train_files = glob.glob(train_dir + '/*.wav')
-            train_x.extend(train_files)
-            train_y.extend([y] * len(train_files))
+            dir = f'{self.test_dest_dir}/{y}'
 
-            test_files = glob.glob(test_dir + '/*.wav')
-            test_x.extend(test_files)
-            test_y.extend([y] * len(test_files))
-        return (np.array(train_x), np.array(train_y)), (np.array(test_x), np.array(test_y))
+            files = glob.glob(dir + '/*.wav')
+            test_x.extend(files)
+            test_y.extend([y] * len(files))
+        return np.array(train), (np.array(test_x), np.array(test_y))
 
-    def __generate_datasets(self):
+    def __generate_test_set(self):
         """
-        Generate train and test datasets, by merging wav files from source dir
+        Generate a test dataset, by merging wav files from source dir
         """
-        write_log('Generating data')
-        dirs = [(self.train_src_dir, self.train_dest_dir, True), (self.test_src_dir, self.test_dest_dir, False)]
-        for (src_dir, dest_dir, shuffle) in dirs:
-            files = glob.glob(src_dir + '/*.WAV')
-            num_records_per_count = len(files) // self.max_speakers
-            data = [record for (_, record) in [wavfile.read(wav) for wav in files]]
-            for i in range(self.min_speakers, self.max_speakers + 1):
-                write_log(f'Generating files for {i} concurrent speakers')
-                self.__create_concurrent_speakers(data, dest_dir, i, num_records_per_count, shuffle)
+
+        # If yet generated, skip
+        if os.path.exists(self.test_dest_dir):
+            return
+
+        write_log('Generating Test set')
+        files = glob.glob(self.test_src_dir + '/*.WAV')
+        num_records_per_count = len(files) // self.max_speakers
+        data = [record for (_, record) in [wavfile.read(wav) for wav in files]]
+        for i in range(self.min_speakers, self.max_speakers + 1):
+            write_log(f'Generating test files for {i} concurrent speakers')
+            self.__create_concurrent_speakers(data, self.test_dest_dir, i, num_records_per_count)
         write_log('Data generated')
 
-    def __create_concurrent_speakers(self, train, dest_dir, num_speakers, num_records, shuffle):
+    def __create_concurrent_speakers(self, data, dest_dir, num_speakers, num_records):
         """
         Generate wav files with concurrent speakers
-        :param shuffle: If true, shuffle dataset before partitioning
         :param dest_dir:  The dir to save the new files in
-        :param train:  The original wav files
+        :param data:  The original wav files
         :param num_speakers:  The number of speakers per sample
         :param num_records:  The number of samples to create
         """
         # Save files in subdir with name 'num_speakers'
         dest_dir += f'/{num_speakers}'
         Path(dest_dir).mkdir(parents=True, exist_ok=True)
-        if shuffle:
-            random.Random(self.random_state).shuffle(train)
+        # Shuffle the set
+        random.Random(self.random_state).shuffle(data)
         # Generate partitions of length num_speakers
-        partitions = [train[i:i + num_speakers] for i in range(0, num_records * num_speakers, num_speakers)]
+        partitions = [data[i:i + num_speakers] for i in range(0, num_records * num_speakers, num_speakers)]
 
         for i, partition in enumerate(partitions):
             # Pad to size of longest file

@@ -3,6 +3,9 @@ import tensorflow as tf
 
 
 class TimingCallback(tf.keras.callbacks.Callback):
+    """
+    Add epoch runtimes to logs
+    """
     starttime: float = None
 
     def on_epoch_begin(self, epoch, logs=None):

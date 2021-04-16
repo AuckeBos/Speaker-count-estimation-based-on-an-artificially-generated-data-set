@@ -1,22 +1,22 @@
+import glob
 import json
 
+import matplotlib.pyplot as plt
 import numpy as np
 
-from DataGenerator import DataGenerator
 from DataLoader import DataLoader
 from RNN import RNN
-import matplotlib.pyplot as plt
+from TrainSetGenerator import TrainSetGenerator
 
 
 class Experimenter:
-    train_src_dir = './data/TIMITS/TIMIT/wavfiles16kHz/TRAIN'
-    test_src_dr = './data/TIMITS/TIMIT/wavfiles16kHz/TEST'
-
+    train_dir = './data/TIMITS/TIMIT/wavfiles16kHz/TRAIN'
+    test_dir = './data/TIMITS/TIMIT/wavfiles16kHz/TEST'
     libri_dir = './data/LibriCount/test'
 
     dest_dir = './data/experiments'
 
-    feature_options = DataGenerator.FEATURE_OPTIONS
+    feature_options = TrainSetGenerator.FEATURE_OPTIONS
 
     def run(self):
         """
@@ -30,23 +30,18 @@ class Experimenter:
         - Save results to json
         :return:
         """
-        # Todo: use multithreader
-        # https://stackoverflow.com/questions/56344611/how-can-take-advantage-of-multiprocessing-and-multithreading-in-deep-learning-us
         experiments = {}
-        (train_x_max_10, train_y_max_10), (test_x_max_10, test_y_max_10) = self.__load_timit(1, 10)
-        (train_x_max_20, train_y_max_20), (test_x_max_20, test_y_max_20) = self.__load_timit(1, 20)
-        (libri_x, libri_y) = self.__load_libri()
-
-        train_sets = {
-            'train_max_10': (train_x_max_10, train_y_max_10),
-            'train_max_20': (train_x_max_20, train_y_max_20)
-        }
-        for index, (train_x, train_y) in train_sets.items():
+        train_data = self.__get_train_data()
+        test_data = self.__get_test_data()
+        for train_data_current in train_data:
             experiment_for_trainset = {}
-            for feature_type in self.feature_options:
+            files = train_data_current['files']
+            min_speakers = train_data_current['min_speakers']
+            max_speakers = train_data_current['max_speakers']
+            for feature_type in [TrainSetGenerator.FEATURE_TYPE_LOG_STFT]:
                 experiment_for_feature = {}
-                name = f'./trained_networks_test/rnn_{index}/{feature_type}'
-                network, history = self.__train_net(train_x, train_y, feature_type, name)
+                name = f'./trained_networks_with_generators/rnn_train_{min_speakers}_{max_speakers}/{feature_type}'
+                network, history = self.__train_net(files, min_speakers, max_speakers, feature_type, name)
                 history = history.history
                 history['lr'] = [float(lr) for lr in history['lr']]
                 experiment_for_feature['history'] = history
@@ -55,13 +50,91 @@ class Experimenter:
                 network.load_from_file(name)
 
                 # Test performance
-                experiment_for_feature['1_to_10'] = self.__test_net(network, feature_type, test_x_max_10, test_y_max_10)
-                experiment_for_feature['1_to_20'] = self.__test_net(network, feature_type, test_x_max_20, test_y_max_20)
-                experiment_for_feature['libri'] = self.__test_net(network, feature_type, libri_x, libri_y)
+                for test_name, test_data_current in test_data.items():
+                    x, y = test_data_current['x'], test_data_current['y']
+                    experiment_for_feature[test_name] = self.__test_net(network, x, y, feature_type)
+
                 experiment_for_trainset[feature_type] = experiment_for_feature
-            experiments[index] = experiment_for_trainset
-        with open('experiments.json', 'w+') as fp:
+            experiments[f'train_{min_speakers}_{max_speakers}'] = experiment_for_trainset
+        with open('experiments_with_generator.json', 'w+') as fp:
             json.dump(experiments, fp)
+
+    def __train_net(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str, save_to: str):
+        """
+        Train a network
+        :param files: The train files
+        :param min_speakers: The min number of speakers to generate files for
+        :param max_speakers: The max number of speakers to generate files for
+        :param feature_type: The feature type to use
+        :param save_to:  Location to save the best performing model to
+        :return: RNN, history
+        """
+        network = RNN()
+        network.save_to_file(save_to)
+        _, history = network.train(files, min_speakers, max_speakers, feature_type)
+        return network, history
+
+    def __test_net(self, network: RNN, x: np.ndarray, y: np.ndarray, feature_type: str):
+        """
+        Test a trained network
+        :param network:  The trained network
+        :param x: The test files (pre-merged)
+        :param y:  The corresponding labels
+        :param feature_type:  The feature type, must be the same as used for traning
+        :return: MAE on different levels
+        """
+        return network.test(x, y, feature_type)
+
+    def __get_train_data(self):
+        """
+        The train data is a list of dicts. Each dict defines a training data configuration.  Each configuration defines:
+        - min_speakers: The min speaker count for the data generator
+        - max_speakers: The max speaker count for the data generator
+        - files: The files the generator will use
+        :return: The list
+        """
+        files = glob.glob(f'{self.train_dir}/*.WAV')
+        return [
+            {
+                'min_speakers': 1,
+                'max_speakers': 10,
+                'files': files,
+            },
+            {
+                'min_speakers': 1,
+                'max_speakers': 20,
+                'files': files,
+            }
+        ]
+
+    def __get_test_data(self):
+        """
+        The test data are actually X, Y, where X is a list of filenames with pre-merged wavs.
+        We pre-merge them, such that we have the same test set each time
+        :return: {
+            'test_set_type' : {
+                'x': pre-merged wav files
+                'y': labels
+            }
+        }
+        """
+        # Load libri
+        libri_x, libri_y = self.__load_libri()
+        data = {
+            'libri': {
+                'x': libri_x,
+                'y': libri_y
+            }
+        }
+        # Load two versions of timit
+        for (min_speakes, max_speakers) in [(1, 10), (1, 20)]:
+            # If not yet exist, generate data. Then save test x and y in np arrays
+            test_x, test_y = self.__load_timit_test(min_speakes, max_speakers)
+            data[f'{min_speakes}_to_{max_speakers}'] = {
+                'x': test_x,
+                'y': test_y
+            }
+        return data
 
     def visualize(self, file: str):
         """
@@ -117,44 +190,19 @@ class Experimenter:
                 errors_max_20 = network.test(test_x_max_20, test_y_max_20, feature_type)
                 errors_max_libri = network.test(libri_x, libri_y, feature_type)
 
-    def __test_net(self, network: RNN, feature_type: str, x, y):
+    def __load_timit_test(self, min_count, max_count):
         """
-        Test a trained network
-        :param network:  The trained network
-        :param feature_type:  The feature type to use
-        :param x:
-        :param y:
-        :return: The test results: Dictionary with MAE on different levels
-        """
-        return network.test(x, y, feature_type)
-
-    def __train_net(self, x, y, feature_type, save_to):
-        """
-        Train a network
-        :param x:
-        :param y:
-        :param feature_type: Which feature type the model should use
-        :param save_to: To which location the best performing model should be saved
-        :return: The trained model (instance of RNN), and its history
-        """
-        network = RNN()
-        network.save_to_file(save_to)
-        _, history = network.train(x, y, feature_type)
-        return network, history
-
-    def __load_timit(self, min_count, max_count):
-        """
-        Load timit dataset
+        Load timit test set
         :param min_count: The minimum max number of speakers per file
         :param max_count:  The maximum max number of speakers per file
-        :return:  train_x, train_y, test_x, test_y
+        :return:  test_x, test_y
         """
-        train_dir = f"{self.dest_dir}/{min_count}_to_{max_count}/train"
-        test_dir = f"{self.dest_dir}/{min_count}_to_{max_count}/test"
-        data_loader = DataLoader(self.train_src_dir, self.test_src_dr, train_dir, test_dir)
+        test_dest_dir = f"{self.dest_dir}/{min_count}_to_{max_count}/test"
+        data_loader = DataLoader(self.train_dir, self.test_dir, test_dest_dir)
         data_loader.min_speakers = min_count
         data_loader.max_speakers = max_count
-        return data_loader.load_data()
+        _, (test_x, test_y) = data_loader.load_data()
+        return test_x, test_y
 
     def __load_libri(self):
         """

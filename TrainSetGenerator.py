@@ -1,20 +1,24 @@
+import math
+
 import librosa
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-from tensorflow.keras.utils import Sequence
 from scipy.io import wavfile
+from tensorflow.keras.utils import Sequence
 
 from helpers import write_log
 
 tfd = tfp.distributions
 
-from pydub import AudioSegment
 
-from pydub import AudioSegment, effects
-class VariableDataGenerator(Sequence):
+class TrainSetGenerator(Sequence):
     """
-    DataGenerator, used to train, validate, and test the network
+    The TrainSetGenerator generates batches for training and validation sets.
+
+    - As input, we get only a list of unmerged files.
+    - We merge these files on the fly. The number of files that is merged defines the label, and is alway between self.min_speakers and self.max_speakers
+    - Since we merge randomly, we allow to duplicate the input list of files. This gives us more training data, and this data will most likely not contain duplicate files
     """
     # 5 seconds per file, at 16KhZ
     seconds_per_record = 5
@@ -74,12 +78,15 @@ class VariableDataGenerator(Sequence):
     # Feature shape is set when feature_type is set. Used in network to define input shape
     feature_shape: tuple
 
+    # Create wav files of min_speakers - max_speakers concurrent speakers
+    min_speakers = 1
+    max_speakers = 20
+
     def __init__(self, files: np.ndarray, batch_size: int, feature_type: str, shuffle: bool = True):
         """
         Initialize Generator
-        :param x: List of filenames
-        :param y: Corresponding list of speaker counts
-        :param batch_size:  Batch size
+        :param files: List of filenames
+        :param batch_size:  Batch size. The final batch may be smaller
         :param feature_type:  Type of features to use. See set_feature_type
         :param shuffle:  If true, shuffle indices on epoch end
         """
@@ -87,12 +94,47 @@ class VariableDataGenerator(Sequence):
 
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.set_feature_type(feature_type)
+        self._set_feature_type(feature_type)
         self.on_epoch_end()
 
-    def get_labels(self):
+    def extend_files_to(self, amount: int):
+        """
+        Extend the length of self.files to amount, by copying the files randomlyt
+        We allow this, since we only use these files to randomly generate merged wavs, so duplicate files are not likely to occur
+        :param amount: Extend self.files to this length
+        """
+        original_files = self.files
+        np.random.seed(self.random_state)
+        new_files = np.random.permutation(original_files)
+        while len(new_files) < amount:
+            batch = np.random.permutation(original_files)
+            new_files = np.append(new_files, batch[:min(len(batch), amount - len(new_files))])
+        self.files = new_files
+        # Re-merge
+        self.on_epoch_end()
+
+    def set_limits(self, min_speaker_count: int, max_speaker_count: int):
+        """
+        Set the limits for the labels to be generated. Also (re-)generate the labels for these new limits
+        :param min_speaker_count: Minimal speakers per file
+        :param max_speaker_count:  Maximal speakers per file
+        """
+        self.min_speakers = min_speaker_count
+        self.max_speakers = max_speaker_count
+        self.on_epoch_end()
+
+    def __get_labels(self):
+        """
+        Define which files will be merged.
+        - Randomly generate labels between self.min_speakers and self.max_speakers
+        - Return ~ that many labels such that sum(labels) == self.available files
+
+        Note that this means for each epoch, the number of batches differs. It is possible that for one epoch create many files merged out of 20 files,
+        and in another merge many files merged out of 2 files. The first epoch will have fewer batches, since it runs out of files to merge much earlier
+        :return:
+        """
         available_files = len(self.remaining_files_for_epoch)
-        random_labels = np.random.randint(1, 20, size=available_files).tolist()
+        random_labels = np.random.randint(self.min_speakers, self.max_speakers, size=available_files).tolist()
         labels = []
         sum = 0
         while sum < available_files:
@@ -103,17 +145,28 @@ class VariableDataGenerator(Sequence):
             labels.append(label)
         return np.array(labels)
 
+    @staticmethod
+    def get_shape_for_type(feature_type: str):
+        """
+        Static method to retrieve the input shape for a certain feature type
+        Stubs a generator with fake data, returns its input shape
+        :param feature_type:
+        :return:
+        """
+        generator = TrainSetGenerator(np.array(['']), 0, feature_type)
+        return generator.feature_shape
+
     def on_epoch_end(self):
         """
         On epoch end, shuffle indices if desired
         """
-        self.remaining_files_for_epoch = self.files.tolist() * 5
-        self.labels = self.get_labels()
+        self.remaining_files_for_epoch = self.files.tolist()
+        self.labels = self.__get_labels()
         if self.shuffle:
             np.random.seed(self.random_state)
             np.random.shuffle(self.remaining_files_for_epoch)
 
-    def set_feature_type(self, type: str):
+    def _set_feature_type(self, type: str):
         """
         Set on init.
         Define the feature representation
@@ -147,19 +200,12 @@ class VariableDataGenerator(Sequence):
         self.feature_type = type
         self.feature_shape = (int(self.sample_rate * self.seconds_per_record / self.n_overlap) + 1, shape)
 
-    @staticmethod
-    def get_shape_for_type(feature_type: str):
+    def __len__(self):
         """
-        Static method to retrieve the input shape for a certain feature type
-        Stubs a generator with fake data, returns its input shape
-        :param feature_type:
+        Use ceil to support the last, possible smaller, batch
         :return:
         """
-        generator = VariableDataGenerator(np.array([]), 0, feature_type)
-        return generator.feature_shape
-
-    def __len__(self):
-        return  len(self.labels) // self.batch_size - 1
+        return int(math.ceil(len(self.labels) / float(self.batch_size)))
 
     def __getitem__(self, batch_index):
         """
@@ -174,7 +220,7 @@ class VariableDataGenerator(Sequence):
         x = [self.__get_datapoint(speaker_count) for speaker_count in y]
 
         # Now preprocess the files
-        x = self.preprocess(x)
+        x = self._preprocess(x)
 
         return np.array(x), np.array(y)
 
@@ -228,8 +274,7 @@ class VariableDataGenerator(Sequence):
         """
         return self.feature_type == self.FEATURE_TYPE_MFCC
 
-    @staticmethod
-    def preprocess(self, X):
+    def _preprocess(self, X):
         """
         Preprocess X
         :param X: (Batch) Numpy array containing wav data

@@ -1,22 +1,20 @@
 from datetime import datetime
 
-import librosa
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras.backend as K
 import tensorflow_probability as tfp
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error
 from tensorflow.python.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.python.keras.optimizer_v2.adam import Adam
 
-from DataGenerator import DataGenerator
+from TestSetGenerator import TestSetGenerator
 from TimingCallback import TimingCallback
-from VariableDataGenerator import VariableDataGenerator
+from TrainSetGenerator import TrainSetGenerator
 from helpers import write_log
 
 tfd = tfp.distributions
-from tensorflow.keras.layers import Dense, InputLayer, Bidirectional, LSTM, GlobalMaxPool1D
+from tensorflow.keras.layers import Dense, InputLayer, Bidirectional, LSTM
 from tensorflow.keras.models import Sequential
 from scipy.stats import poisson
 
@@ -118,64 +116,53 @@ class RNN:
     def poisson_loss(y_hat, y_true):
         return -y_hat.log_prob(y_true)
 
-    def __get_generators(self, x: np.ndarray, y: np.ndarray, feature_type: str):
+    def __get_generators(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str):
         """
-        Create train and validation generators for the data
-        :param x: List of filenames
-        :param y:  List of speaker counts
-        :param feature_type:  Feature type to use
-        :return: train_generator, validation_generator, input_shape
+        Get train and validation generators, used during training
+        :param files:  All files, will be split .8, 0.2 train,val
+        :param min_speakers:  The min number of speakers to generate files for
+        :param max_speakers: The max number of speakers to generate files for
+        :param feature_type: The feature type
+        :return: train_generator, validation_generator
         """
-        train_x, validation_x, train_y, validation_y = train_test_split(x, y, test_size=0.2, random_state=self.random_state)
-        train_generator = DataGenerator(train_x, train_y, self.batch_size, feature_type)
-        validation_generator = DataGenerator(validation_x, validation_y, self.batch_size, feature_type)
-        return train_generator, validation_generator, train_generator.feature_shape
+        # Split files into trai nval
+        np.random.shuffle(files)
+        split_index = int(len(files) * .8)
+        train_files = files[:split_index]
+        validation_files = files[split_index:]
 
-    def train_variable_batches(self, files: np.ndarray, feature_type: str):
+        # Train generator: Duplicate all files 5 times
+        train_generator = TrainSetGenerator(train_files, self.batch_size, feature_type)
+        train_generator.min_speakers = min_speakers
+        train_generator.max_speakers = max_speakers
+        train_generator.extend_files_to(5 * len(train_files))
+
+        # Validation generator: Duplicate all files 2 times
+        validation_generator = TrainSetGenerator(validation_files, self.batch_size, feature_type)
+        validation_generator.min_speakers = min_speakers
+        validation_generator.max_speakers = max_speakers
+        validation_generator.extend_files_to(len(validation_files) * 2)
+
+        return train_generator, validation_generator
+
+    def train(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str):
         """
         Train the network, eg
         - Preprocess the data
         - Train with Adam, negative log likelihood, accuracy metric.
         - Visualize using Tensorboard
+        :param files: All files
+        :param min_speakers The min number of speakers to generate files for
+        :param max_speakers The max number of speakers to generate files for
         :param feature_type:  Feature type to use
-        :param x: List of filenames
-        :param y: List of speakercounts
         """
-        np.random.shuffle(files)
-        split_index = int(len(files) * .8)
-        train_files = files[:split_index]
-        validation_files = files[split_index:]
-        train_generator = VariableDataGenerator(train_files, self.batch_size, feature_type)
-        validation_generator = VariableDataGenerator(validation_files, self.batch_size, feature_type)
+        train_generator, validation_generator = self.__get_generators(files, min_speakers, max_speakers, feature_type)
         net = self.compile_net(train_generator.feature_shape)
         write_log('Training model')
         history = net.fit(
             train_generator,
             validation_data=validation_generator,
             epochs=self.num_epochs,
-            callbacks=self.callbacks,
-            verbose=1,
-        )
-        write_log('Model trained')
-        return net, history
-
-    def train(self, x: np.ndarray, y: np.ndarray, feature_type: str):
-        """
-        Train the network, eg
-        - Preprocess the data
-        - Train with Adam, negative log likelihood, accuracy metric.
-        - Visualize using Tensorboard
-        :param feature_type:  Feature type to use
-        :param x: List of filenames
-        :param y: List of speakercounts
-        """
-        train_generator, validation_generator, input_shape = self.__get_generators(x, y, feature_type)
-        net = self.compile_net(input_shape)
-        write_log('Training model')
-        history = net.fit(
-            train_generator,
-            validation_data=validation_generator,
-            epochs=1,
             callbacks=self.callbacks,
             verbose=1,
         )
@@ -189,7 +176,7 @@ class RNN:
         - Compute MAE where y in [1, 10]
         - Compute MAE where y in [1, 20]
         - Compute the MAE over all labels
-        :param X: The test data set
+        :param X: The test data set (list of files)
         :param Y: The labels
         :param feature_type: Feature type to use
         :return MAE
@@ -197,8 +184,8 @@ class RNN:
         if self.__net is None:
             write_log('Cannot test the network, as it is not initialized. Please train your model, or load it from filesystem', True, True)
         write_log('Testing network')
-        # Single batch generator
-        generator = DataGenerator(X, Y, len(Y), feature_type, False)
+
+        generator = TestSetGenerator(X, Y, self.batch_size, feature_type)
         Y_hat = self.__net.predict(generator)
 
         # Convert predictions to int: take median of poisson distribution
