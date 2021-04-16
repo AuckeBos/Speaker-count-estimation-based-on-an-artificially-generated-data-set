@@ -25,8 +25,8 @@ class RNN:
     """
 
     # Training configuration
-    batch_size = 64
-    num_epochs = 80
+    batch_size = 5
+    num_epochs = 5
     tensorboard_log = f'./tensorboard/{datetime.now().strftime("%m-%d %H:%M")}/'
 
     # Training callbacks
@@ -144,11 +144,11 @@ class RNN:
         validation_generator.set_limits(min_speakers, max_speakers)
         # validation_generator.set_num_files_to_merge(2 * len(validation_files))
         # Generate a full set
-        # validation_set = list(validation_generator.__iter__())[0]
-        # val_x, val_y = validation_set[0], validation_set[1]
+        validation_set = list(validation_generator.__iter__())[0]
+        val_x, val_y = validation_set[0], validation_set[1]
 
 
-        return train_generator, validation_generator
+        return train_generator, (val_x, val_y)
 
     def train(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str):
         """
@@ -161,12 +161,12 @@ class RNN:
         :param max_speakers The max number of speakers to generate files for
         :param feature_type:  Feature type to use
         """
-        train_generator, validation_generator = self.__get_train_data(files, min_speakers, max_speakers, feature_type)
+        train_generator, (val_x, val_y) = self.__get_train_data(files, min_speakers, max_speakers, feature_type)
         net = self.compile_net(train_generator.feature_shape)
         write_log('Training model')
         history = net.fit(
             train_generator,
-            validation_data=validation_generator,
+            validation_data=(val_x, val_y),
             epochs=self.num_epochs,
             callbacks=self.callbacks,
             verbose=1,
