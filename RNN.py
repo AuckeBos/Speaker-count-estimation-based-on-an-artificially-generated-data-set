@@ -116,14 +116,17 @@ class RNN:
     def poisson_loss(y_hat, y_true):
         return -y_hat.log_prob(y_true)
 
-    def __get_generators(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str):
+    def __get_train_data(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str):
         """
-        Get train and validation generators, used during training
+        Get train generator and validation set
+        - We create a set for validation instead of a generator, such taht we validate on the same set each time
+        - This also speeds up validation during the training loop drastically, since we only preprocess the validation set once
+
         :param files:  All files, will be split .8, 0.2 train,val
         :param min_speakers:  The min number of speakers to generate files for
         :param max_speakers: The max number of speakers to generate files for
         :param feature_type: The feature type
-        :return: train_generator, validation_generator
+        :return: train_generator, (val_x, val_y)
         """
         # Split files into trai nval
         np.random.shuffle(files)
@@ -138,12 +141,16 @@ class RNN:
         train_generator.extend_files_to(5 * len(train_files))
 
         # Validation generator: Duplicate all files 2 times
-        validation_generator = TrainSetGenerator(validation_files, self.batch_size, feature_type)
+        validation_generator = TrainSetGenerator(validation_files, 1, feature_type)
         validation_generator.min_speakers = min_speakers
         validation_generator.max_speakers = max_speakers
         validation_generator.extend_files_to(len(validation_files) * 2)
+        # Generate a full set
+        validation_set = list(validation_generator.__iter__())[0]
+        val_x, val_y = validation_set[0], validation_set[1]
 
-        return train_generator, validation_generator
+
+        return train_generator, (val_x, val_y)
 
     def train(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str):
         """
@@ -156,12 +163,12 @@ class RNN:
         :param max_speakers The max number of speakers to generate files for
         :param feature_type:  Feature type to use
         """
-        train_generator, validation_generator = self.__get_generators(files, min_speakers, max_speakers, feature_type)
+        train_generator, (validation_x, validation_y) = self.__get_train_data(files, min_speakers, max_speakers, feature_type)
         net = self.compile_net(train_generator.feature_shape)
         write_log('Training model')
         history = net.fit(
             train_generator,
-            validation_data=validation_generator,
+            validation_data=(validation_x, validation_y),
             epochs=self.num_epochs,
             callbacks=self.callbacks,
             verbose=1,
