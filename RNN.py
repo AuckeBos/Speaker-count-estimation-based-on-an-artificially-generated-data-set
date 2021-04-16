@@ -136,21 +136,19 @@ class RNN:
 
         # Train generator: Duplicate all files 5 times
         train_generator = TrainSetGenerator(train_files, self.batch_size, feature_type)
-        train_generator.min_speakers = min_speakers
-        train_generator.max_speakers = max_speakers
-        train_generator.extend_files_to(5 * len(train_files))
+        train_generator.set_limits(min_speakers, max_speakers)
+        # train_generator.set_num_files_to_merge(5 * len(train_files))
 
         # Validation generator: Duplicate all files 2 times
         validation_generator = TrainSetGenerator(validation_files, 1, feature_type)
-        validation_generator.min_speakers = min_speakers
-        validation_generator.max_speakers = max_speakers
-        validation_generator.extend_files_to(len(validation_files) * 2)
+        validation_generator.set_limits(min_speakers, max_speakers)
+        # validation_generator.set_num_files_to_merge(2 * len(validation_files))
         # Generate a full set
-        validation_set = list(validation_generator.__iter__())[0]
-        val_x, val_y = validation_set[0], validation_set[1]
+        # validation_set = list(validation_generator.__iter__())[0]
+        # val_x, val_y = validation_set[0], validation_set[1]
 
 
-        return train_generator, (val_x, val_y)
+        return train_generator, validation_generator
 
     def train(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str):
         """
@@ -163,12 +161,12 @@ class RNN:
         :param max_speakers The max number of speakers to generate files for
         :param feature_type:  Feature type to use
         """
-        train_generator, (validation_x, validation_y) = self.__get_train_data(files, min_speakers, max_speakers, feature_type)
+        train_generator, validation_generator = self.__get_train_data(files, min_speakers, max_speakers, feature_type)
         net = self.compile_net(train_generator.feature_shape)
         write_log('Training model')
         history = net.fit(
             train_generator,
-            validation_data=(validation_x, validation_y),
+            validation_data=validation_generator,
             epochs=self.num_epochs,
             callbacks=self.callbacks,
             verbose=1,

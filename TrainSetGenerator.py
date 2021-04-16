@@ -39,11 +39,13 @@ class TrainSetGenerator(Sequence):
     # Use overlap of 10ms
     n_overlap = int(sample_rate * 0.01)
 
-    # list of filenames
+    # list of available files (filenames)
     files: np.ndarray
 
-    # files is copied to this list on epoch end. During epoch, pop filenames from this list to get a new batch
-    remaining_files_for_epoch: list
+    # The number of files to merge. Can be > len(files), since we randomly select files from the list each time
+    # If not provided, set to int(mean(range(min_speakers, max_speakers)) * len(files)). Such that we generate
+    # ~len(files) files
+    num_files_to_merge: int
 
     # Batch size
     batch_size: int
@@ -91,26 +93,22 @@ class TrainSetGenerator(Sequence):
         :param shuffle:  If true, shuffle indices on epoch end
         """
         self.files = np.array(files)
+        self.num_files_to_merge = int(np.mean(range(self.min_speakers, self.max_speakers)) * len(self.files))
 
         self.batch_size = batch_size
         self.shuffle = shuffle
         self._set_feature_type(feature_type)
+        self.__generate_labels()
         self.on_epoch_end()
 
-    def extend_files_to(self, amount: int):
+    def set_num_files_to_merge(self, amount: int):
         """
-        Extend the length of self.files to amount, by copying the files randomlyt
-        We allow this, since we only use these files to randomly generate merged wavs, so duplicate files are not likely to occur
-        :param amount: Extend self.files to this length
+        Set the number of files to merge. Can be >len(files), since we randomly select files from the list on the fly,
+        so files can be used more than once
+        :param amount: The total amount of files to merge
         """
-        original_files = self.files
-        np.random.seed(self.random_state)
-        new_files = np.random.permutation(original_files)
-        while len(new_files) < amount:
-            batch = np.random.permutation(original_files)
-            new_files = np.append(new_files, batch[:min(len(batch), amount - len(new_files))])
-        self.files = new_files
-        # Re-merge
+        self.num_files_to_merge = amount
+        self.__generate_labels()
         self.on_epoch_end()
 
     def set_limits(self, min_speaker_count: int, max_speaker_count: int):
@@ -121,29 +119,27 @@ class TrainSetGenerator(Sequence):
         """
         self.min_speakers = min_speaker_count
         self.max_speakers = max_speaker_count
+        self.num_files_to_merge = int(np.mean(range(self.min_speakers, self.max_speakers)) * len(self.files))
+        self.__generate_labels()
         self.on_epoch_end()
 
-    def __get_labels(self):
+    def __generate_labels(self):
         """
         Define which files will be merged.
-        - Randomly generate labels between self.min_speakers and self.max_speakers
-        - Return ~ that many labels such that sum(labels) == self.available files
-
-        Note that this means for each epoch, the number of batches differs. It is possible that for one epoch create many files merged out of 20 files,
-        and in another merge many files merged out of 2 files. The first epoch will have fewer batches, since it runs out of files to merge much earlier
+        - Evenly distribute the labels between self.min_speakers and self.max_speakers
+        - The sum of the labels is equal to self.num_files_to_merge
         :return:
         """
-        available_files = len(self.remaining_files_for_epoch)
-        random_labels = np.random.randint(self.min_speakers, self.max_speakers, size=available_files).tolist()
+        # Labels max to min
+        available_labels = range(self.max_speakers, self.min_speakers - 1, -1)
         labels = []
-        sum = 0
-        while sum < available_files:
-            label = random_labels.pop(0)
-            sum += label
-            if sum > available_files:
-                break
-            labels.append(label)
-        return np.array(labels)
+        while(sum(labels) != self.num_files_to_merge):
+            for label in available_labels:
+                if(sum(labels) + label > self.num_files_to_merge):
+                    continue
+                labels.append(label)
+        # Taken contains evenly distributed labels between [min, max], the sum is exactly equal to the number of available files
+        self.labels = np.array(labels)
 
     @staticmethod
     def get_shape_for_type(feature_type: str):
@@ -160,11 +156,11 @@ class TrainSetGenerator(Sequence):
         """
         On epoch end, shuffle indices if desired
         """
-        self.remaining_files_for_epoch = self.files.tolist()
-        self.labels = self.__get_labels()
         if self.shuffle:
             np.random.seed(self.random_state)
-            np.random.shuffle(self.remaining_files_for_epoch)
+            np.random.shuffle(self.files)
+            np.random.seed(self.random_state)
+            np.random.shuffle(self.labels)
 
     def _set_feature_type(self, type: str):
         """
@@ -201,7 +197,7 @@ class TrainSetGenerator(Sequence):
         self.feature_shape = (int(self.sample_rate * self.seconds_per_record / self.n_overlap) + 1, shape)
 
     def __len__(self):
-        return len(self.labels) // self.batch_size - 1
+        return int(math.ceil(len(self.labels) / float(self.batch_size)))
 
     def __getitem__(self, batch_index):
         """
@@ -229,8 +225,7 @@ class TrainSetGenerator(Sequence):
         :param speaker_count: The number of files to merge
         :return: List containing wav data
         """
-        files = self.remaining_files_for_epoch[:speaker_count]
-        del self.remaining_files_for_epoch[:speaker_count]
+        files = np.random.choice(self.files, speaker_count, replace=False)
         datapoint = self.__merge_files(files)
         return datapoint
 
