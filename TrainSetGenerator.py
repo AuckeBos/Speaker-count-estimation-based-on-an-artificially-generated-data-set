@@ -201,11 +201,7 @@ class TrainSetGenerator(Sequence):
         self.feature_shape = (int(self.sample_rate * self.seconds_per_record / self.n_overlap) + 1, shape)
 
     def __len__(self):
-        """
-        Use ceil to support the last, possible smaller, batch
-        :return:
-        """
-        return int(math.ceil(len(self.labels) / float(self.batch_size)))
+        return len(self.labels) // self.batch_size - 1
 
     def __getitem__(self, batch_index):
         """

@@ -31,8 +31,8 @@ if __name__ == '__main__':
     # Train and test network
     file = 'testing_rnn'
     net = RNN()
-    # net.save_to_file(file)
-    # net.train(train, min_speakers, max_speakers, feature_type)
+    net.save_to_file(file)
+    net.train(train, min_speakers, max_speakers, feature_type)
 
     net.load_from_file(file)
 
