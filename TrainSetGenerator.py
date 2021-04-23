@@ -248,11 +248,13 @@ class TrainSetGenerator(Sequence):
         # Randomize to between 50-70 DB
         normalize_to = np.random.uniform(50, 70)
         # Calculate current loudness
+        # First normalize, to make sure we taking a valid log
+        wav = wav / np.max(np.abs(wav))
         loudness = 10 * math.log10(np.sum(wav ** 2) / float(len(wav) * 4 * 10 ** -10))
         # Calc multiplier to use to get to the loudness of normalize_to
         muliplier = 10 ** ((normalize_to - loudness) / float(20))
         # Transform into the right loudness
-        wav *= muliplier
+        wav = wav * muliplier
         return wav
 
     def __use_stft(self):
