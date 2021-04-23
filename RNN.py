@@ -25,7 +25,7 @@ class RNN:
     """
 
     # Training configuration
-    batch_size = 128
+    batch_size = 64
     num_epochs = 80
     tensorboard_log = f'./tensorboard/{datetime.now().strftime("%m-%d %H:%M")}/'
 
@@ -93,7 +93,6 @@ class RNN:
         :param y_hat: Lambda for poisson
         :return:
         """
-        return tf.keras.losses.MeanSquaredError(y_true, y_hat)
         theta = tf.cast(y_hat, tf.float32)
         y = tf.cast(y_true, tf.float32)
         loss = K.mean(theta - y * K.log(theta + K.epsilon()))
@@ -113,7 +112,7 @@ class RNN:
 
     # todo
     @staticmethod
-    def poisson_loss(y_hat, y_true):
+    def poisson_loss(y_true, y_hat):
         return -y_hat.log_prob(y_true)
 
     def __get_train_data(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str):
@@ -140,7 +139,7 @@ class RNN:
         # train_generator.set_num_files_to_merge(5 * len(train_files))
 
         # Validation generator: Duplicate all files 2 times
-        validation_generator = TrainSetGenerator(validation_files, 1, feature_type)
+        validation_generator = TrainSetGenerator(validation_files, self.batch_size, feature_type)
         validation_generator.set_limits(min_speakers, max_speakers)
         # validation_generator.set_num_files_to_merge(2 * len(validation_files))
         # Generate a full set

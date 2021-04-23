@@ -146,7 +146,7 @@ class Experimenter:
         with open(file) as json_file:
             content = json.load(json_file)
         # fig, axs = plt.subplots(2)
-        for fig_i, train_set in enumerate(['train_max_10', 'train_max_20']):
+        for fig_i, train_set in enumerate(['train_1_10', 'train_1_20']):
             plt.figure(fig_i)
             # axs[fig_i].title(train_set)
             data = content[train_set]

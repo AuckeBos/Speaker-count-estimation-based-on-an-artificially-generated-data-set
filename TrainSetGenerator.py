@@ -133,9 +133,9 @@ class TrainSetGenerator(Sequence):
         # Labels max to min
         available_labels = range(self.max_speakers, self.min_speakers - 1, -1)
         labels = []
-        while(sum(labels) != self.num_files_to_merge):
+        while (sum(labels) != self.num_files_to_merge):
             for label in available_labels:
-                if(sum(labels) + label > self.num_files_to_merge):
+                if (sum(labels) + label > self.num_files_to_merge):
                     continue
                 labels.append(label)
         # Taken contains evenly distributed labels between [min, max], the sum is exactly equal to the number of available files
@@ -244,6 +244,17 @@ class TrainSetGenerator(Sequence):
         data = np.sum(data, axis=0, dtype=float)
         return data
 
+    def __randomize_loudness(self, wav):
+        # Randomize to between 50-70 DB
+        normalize_to = np.random.uniform(50, 70)
+        # Calculate current loudness
+        loudness = 10 * math.log10(np.sum(wav ** 2) / float(len(wav) * 4 * 10 ** -10))
+        # Calc multiplier to use to get to the loudness of normalize_to
+        muliplier = 10 ** ((normalize_to - loudness) / float(20))
+        # Transform into the right loudness
+        wav *= muliplier
+        return wav
+
     def __use_stft(self):
         """
         True if self.__feature_type is either STFT or LOG_STFT
@@ -271,8 +282,12 @@ class TrainSetGenerator(Sequence):
         :param X: (Batch) Numpy array containing wav data
         :return: prepocessed X
         """
-        # Merge all dimensions. For speaker_count > 1, each speaker initially has its own dimension
+        # Merge all dimensions. For speaker_count > 1, each speaker initially has its own dimension (for test files)
         X = np.array([np.sum(x, axis=1) if x.ndim > 1 else x for x in X], dtype='object')
+
+        # Randomize loudness to 50-70 db for each file
+        X = np.array([self.__randomize_loudness(x) for x in X], dtype='object')
+
         # Normalize to -1, 1
         X = [x / np.max(np.abs(x)) for x in X]
         # Pad to and cut off at 5 seconds
