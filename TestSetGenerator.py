@@ -38,6 +38,8 @@ class TestSetGenerator(TrainSetGenerator):
 
         self.batch_size = batch_size
         self._set_feature_type(feature_type)
+        # Disable augmentation
+        self.augment = False
 
     def on_epoch_end(self):
         """

@@ -18,6 +18,7 @@ tfd = tfp.distributions
 from tensorflow.keras.layers import Dense, InputLayer, Bidirectional, LSTM, Masking
 from tensorflow.keras.models import Sequential
 from scipy.stats import poisson
+import matplotlib.pyplot as plt
 
 
 class RNN:
@@ -144,6 +145,7 @@ class RNN:
         # Validation generator: Duplicate all files 2 times
         validation_generator = TrainSetGenerator(validation_files, self.batch_size, feature_type)
         validation_generator.set_limits(min_speakers, max_speakers)
+        validation_generator.augment = False
         # validation_generator.set_num_files_to_merge(2 * len(validation_files))
         # Generate a full set
         validation_set = list(validation_generator.__iter__())[0]
@@ -176,7 +178,7 @@ class RNN:
         write_log('Model trained')
         return net, history
 
-    def test(self, X: np.ndarray, Y: np.ndarray, feature_type: str):
+    def test(self, X: np.ndarray, Y: np.ndarray, feature_type: str, plot_result = False):
         """
         Test the network:
         - Compute the MAE for each count in Y
@@ -212,4 +214,20 @@ class RNN:
             indices = np.argwhere(np.logical_and(Y >= 1, Y <= max_count))
             errors[f'1_to_{max_count}'] = mean_absolute_error(Y[indices], predictions[indices])
         errors['mean'] = mean_absolute_error(Y, predictions)
+        if plot_result:
+            self.__plot_test_results(errors)
         return errors
+
+    def __plot_test_results(self, errors):
+        x,y=[],[]
+        for i in range(1, 21):
+            if i in errors:
+                x.append(i)
+                y.append(errors[i])
+        plt.plot(x, y)
+        plt.plot(errors['1_to_10'], 'o')
+        plt.title("Error per speaker count")
+        plt.ylabel('MAE')
+        plt.xlabel('Max number of speakers')
+        plt.ylim(0, 10)
+        plt.show()

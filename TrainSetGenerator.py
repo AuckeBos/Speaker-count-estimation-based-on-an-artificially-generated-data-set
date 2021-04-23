@@ -13,6 +13,15 @@ from helpers import write_log
 tfd = tfp.distributions
 
 
+def by_chance(percent):
+    """
+    Return True with probability percent
+    :param percent: 1-100
+    :return: True or false
+    """
+    return np.random.random() < float(percent) / 100
+
+
 class TrainSetGenerator(Sequence):
     """
     The TrainSetGenerator generates batches for training and validation sets.
@@ -84,6 +93,9 @@ class TrainSetGenerator(Sequence):
     # Create wav files of min_speakers - max_speakers concurrent speakers
     min_speakers = 1
     max_speakers = 20
+
+    # If true, apply augmentation
+    augment = True
 
     def __init__(self, files: np.ndarray, batch_size: int, feature_type: str, shuffle: bool = True):
         """
@@ -279,6 +291,42 @@ class TrainSetGenerator(Sequence):
         """
         return self.feature_type == self.FEATURE_TYPE_MFCC
 
+    @staticmethod
+    def __augment(wav):
+        """
+        Augment a wav file
+        :param wav:
+        :return: The augmented wav
+        """
+        wav = wav / np.max(np.abs(wav))
+        # Noisify with 20% prob
+        if by_chance(20):
+            noise = np.random.randn(len(wav))
+            wav = wav + 0.01 * noise
+        # Shift by 1 sec with 25% prob
+        if by_chance(25):
+            # Shift with on second
+            shift = np.random.randint(TrainSetGenerator.sample_rate * 1)
+            if by_chance(50):
+                shift *= -1
+            wav = np.roll(wav, shift)
+            # Set rest to zero
+            if shift > 0:
+                wav[:shift] = 0
+            else:
+                wav[shift:] = 0
+        # Change pitch by 1-5 with 35% prob
+        if by_chance(35):
+            factor = np.random.randint(1, 5)
+            if by_chance(50):
+                factor *= -1
+            wav = librosa.effects.pitch_shift(wav.astype('float'), TrainSetGenerator.sample_rate, factor)
+        # Stretch time by .75 - 1.25 with 40% prob
+        if by_chance(40):
+            rate = np.random.uniform(.75, 1.25)
+            wav = librosa.effects.time_stretch(wav, rate)
+        return wav
+
     def _preprocess(self, X):
         """
         Preprocess X
@@ -290,6 +338,10 @@ class TrainSetGenerator(Sequence):
 
         # Randomize loudness to 50-70 db for each file
         X = np.array([self.__randomize_loudness(x) for x in X], dtype='object')
+
+        # Apply augmentation
+        if self.augment:
+            X = np.array([self.__augment(x) for x in X], dtype='object')
 
         # Normalize to -1, 1
         X = [x / np.max(np.abs(x)) for x in X]
