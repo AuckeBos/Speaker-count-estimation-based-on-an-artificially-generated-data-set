@@ -298,6 +298,7 @@ class TrainSetGenerator(Sequence):
         :param wav:
         :return: The augmented wav
         """
+        wav = wav.astype(float)
         wav = wav / np.max(np.abs(wav))
         # Noisify with 20% prob
         if by_chance(20):
@@ -320,11 +321,12 @@ class TrainSetGenerator(Sequence):
             factor = np.random.randint(1, 5)
             if by_chance(50):
                 factor *= -1
-            wav = librosa.effects.pitch_shift(wav.astype('float'), TrainSetGenerator.sample_rate, factor)
+            wav = librosa.effects.pitch_shift(wav, TrainSetGenerator.sample_rate, factor)
         # Stretch time by .75 - 1.25 with 40% prob
         if by_chance(40):
             rate = np.random.uniform(.75, 1.25)
             wav = librosa.effects.time_stretch(wav, rate)
+
         return wav
 
     def _preprocess(self, X):
