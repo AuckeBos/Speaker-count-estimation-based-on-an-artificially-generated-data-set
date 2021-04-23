@@ -22,11 +22,11 @@ class TrainSetGenerator(Sequence):
     - Since we merge randomly, we allow to duplicate the input list of files. This gives us more training data, and this data will most likely not contain duplicate files
     """
     # 5 seconds per file, at 16KhZ
-    seconds_per_record = 5
+    seconds_per_record = 10
     sample_rate = 16000
 
     # For now, pad to and cut off at 10 seconds. Paddings are masked out in RNN
-    pad_to = sample_rate * 10
+    pad_to = sample_rate * seconds_per_record
 
     # If feature_type is MELXX, num_mel_filters will be set to XX in set_feature_type()
     num_mel_filters: int = None
