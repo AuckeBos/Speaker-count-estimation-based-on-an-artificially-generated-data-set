@@ -8,13 +8,14 @@ from sklearn.metrics import mean_absolute_error
 from tensorflow.python.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.python.keras.optimizer_v2.adam import Adam
 
+import helpers
 from TestSetGenerator import TestSetGenerator
 from TimingCallback import TimingCallback
 from TrainSetGenerator import TrainSetGenerator
 from helpers import write_log
 
 tfd = tfp.distributions
-from tensorflow.keras.layers import Dense, InputLayer, Bidirectional, LSTM
+from tensorflow.keras.layers import Dense, InputLayer, Bidirectional, LSTM, Masking
 from tensorflow.keras.models import Sequential
 from scipy.stats import poisson
 
@@ -64,6 +65,8 @@ class RNN:
         """
         net = Sequential()
         net.add(InputLayer(input_shape=input_shape))
+        # Mask the input
+        net.add(Masking(mask_value=helpers.MASKING_VALUE))
         net.add(Bidirectional(LSTM(30, activation='tanh', return_sequences=True, dropout=0.5)))
         net.add(Bidirectional(LSTM(20, activation='tanh', return_sequences=True, dropout=0.5)))
         net.add(Bidirectional(LSTM(40, activation='tanh', return_sequences=False, dropout=0.5)))

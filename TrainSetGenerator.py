@@ -7,6 +7,7 @@ import tensorflow_probability as tfp
 from scipy.io import wavfile
 from tensorflow.keras.utils import Sequence
 
+import helpers
 from helpers import write_log
 
 tfd = tfp.distributions
@@ -24,8 +25,8 @@ class TrainSetGenerator(Sequence):
     seconds_per_record = 5
     sample_rate = 16000
 
-    # For now, pad to and cut off at 5 seconds
-    pad_to = sample_rate * 5
+    # For now, pad to and cut off at 1000 frames, pad with value helpers.MASKING_VALUE
+    pad_to = 1000
 
     # If feature_type is MELXX, num_mel_filters will be set to XX in set_feature_type()
     num_mel_filters: int = None
@@ -175,26 +176,26 @@ class TrainSetGenerator(Sequence):
         # STFT in mel basis, using 20 filters
         if type == self.FEATURE_TYPE_MEL_20:
             self.num_mel_filters = 20
-            # 501 * 20
+            # 1000 * 20
             shape = self.num_mel_filters
         # STFT in mel basis, using 20 filters
         elif type == self.FEATURE_TYPE_MEL_40:
             self.num_mel_filters = 40
-            # 501 * 40
+            # 1000 * 40
             shape = self.num_mel_filters
         # Mel frequency cepstral coefficients 1-13
         elif type == self.FEATURE_TYPE_MFCC:
-            # 501 * 12
+            # 1000 * 12
             shape = self.num_coefficients
-        # Short time fourier transform: windows in frequency domains, 501 * (1 + self.frame_length / 2) = 501 * 201
+        # Short time fourier transform: windows in frequency domains, 1000 * (1 + self.frame_length / 2) = 1000 * 201
         elif type == self.FEATURE_TYPE_STFT or type == self.FEATURE_TYPE_LOG_STFT:
-            # 501 * 201
+            # 1000 * 201
             shape = 1 + self.frame_length // 2
         else:
             write_log(f'Feature type {type} is invalid', True, True)
         write_log(f'Using feature type {type}')
         self.feature_type = type
-        self.feature_shape = (int(self.sample_rate * self.seconds_per_record / self.n_overlap) + 1, shape)
+        self.feature_shape = (self.pad_to, shape)
 
     def __len__(self):
         return int(math.ceil(len(self.labels) / float(self.batch_size)))
@@ -294,28 +295,30 @@ class TrainSetGenerator(Sequence):
         X = [x / np.max(np.abs(x)) for x in X]
         # Pad to and cut off at 5 seconds
         # todo: improve htis
-        X = np.array([np.pad(x, (0, max(self.pad_to - len(x), 0)))[:self.pad_to] for x in X])
+        # X = np.array([np.pad(x, (0, max(self.pad_to - len(x), 0)))[:self.pad_to] for x in X])
 
         # Load Short Time Fourier Transformas
-        stft = np.abs([librosa.stft(np.array(x, dtype=float), n_fft=self.frame_length, hop_length=self.n_overlap) for x in X])
-        stft = librosa.util.normalize(stft)
+        stft = [np.abs(librosa.stft(np.array(x, dtype=float), n_fft=self.frame_length, hop_length=self.n_overlap)) for x in X]
+        stft = [librosa.util.normalize(s) for s in stft]
         if self.__use_mfcc():
             # MFCC
-            log_spectogram = [librosa.power_to_db(x) for x in stft]
-            features = np.array([librosa.feature.mfcc(S=x, sr=self.sample_rate, n_mfcc=self.num_coefficients + 1)[1:] for x in log_spectogram])
+            log_spectogram = [librosa.power_to_db(s) for s in stft]
+            features = [librosa.feature.mfcc(S=x, sr=self.sample_rate, n_mfcc=self.num_coefficients + 1)[1:] for x in log_spectogram]
         else:
             if self.__use_stft():
                 # STFT or LOG_STFT
                 if self.__use_log_stft():
                     # LOG_STFT
-                    features = np.log(stft + tf.keras.backend.epsilon())
+                    features = [np.log(s + tf.keras.backend.epsilon()) for s in stft]
                 else:
                     # STFT
                     features = stft
             else:
                 # MEL20/MEL40
-                features = np.array([librosa.feature.melspectrogram(S=x, sr=self.sample_rate, n_fft=self.frame_length, hop_length=self.n_overlap, n_mels=self.num_mel_filters) for x in stft])
+                features = [librosa.feature.melspectrogram(S=x, sr=self.sample_rate, n_fft=self.frame_length, hop_length=self.n_overlap, n_mels=self.num_mel_filters) for x in stft]
 
-        # Reshape to [batch_size, time_steps, n_features]
+        # Padd to 1000 frames, with masking value
+        features = np.array([np.pad(x, ((0,0), (0, max(self.pad_to - x.shape[1], 0))), constant_values=helpers.MASKING_VALUE)[:, :self.pad_to] for x in features])
+        # Reshape to [batch_size, time_steps (=1000), n_features]
         features = features.reshape((features.shape[0], features.shape[2], features.shape[1]))
         return features
