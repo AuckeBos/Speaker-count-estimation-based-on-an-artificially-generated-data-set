@@ -1,6 +1,3 @@
-# Data generators mask the input with this value. The RNN masking layer uses it to mask them out
-MASKING_VALUE = -1
-
 def write_log(msg, error=False, kill=False):
     """
     Write a log to stdout

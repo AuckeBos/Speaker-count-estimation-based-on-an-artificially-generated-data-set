@@ -66,7 +66,7 @@ class RNN:
         net = Sequential()
         net.add(InputLayer(input_shape=input_shape))
         # Mask the input
-        net.add(Masking(mask_value=helpers.MASKING_VALUE))
+        net.add(Masking())
         net.add(Bidirectional(LSTM(30, activation='tanh', return_sequences=True, dropout=0.5)))
         net.add(Bidirectional(LSTM(20, activation='tanh', return_sequences=True, dropout=0.5)))
         net.add(Bidirectional(LSTM(40, activation='tanh', return_sequences=False, dropout=0.5)))
