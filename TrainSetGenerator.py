@@ -40,7 +40,7 @@ class TrainSetGenerator(Sequence):
     # If feature_type is MELXX, num_mel_filters will be set to XX in set_feature_type()
     num_mel_filters: int = None
 
-    # If using MFCC, take coefficients 1-13
+    # If using MFCC, take coefficients 2-13
     num_coefficients = 12
 
     # Use a frame length of 25ms
@@ -344,8 +344,9 @@ class TrainSetGenerator(Sequence):
         # Apply augmentation
         if self.augment:
             X = np.array([self.__augment(x) for x in X], dtype='object')
+
         # nans and infs to 0 and float.max, to prevent librosa crash
-        X = np.array([np.nan_to_num(x, False) for x in X], dtype='object')
+        np.nan_to_num(X, False)
         # Normalize to -1, 1
         X = [x / np.max(np.abs(x)) for x in X]
         # Pad to and cut off at 5 seconds
