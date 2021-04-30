@@ -343,14 +343,12 @@ class TrainSetGenerator(Sequence):
         if self.augment:
             X = np.array([self.__augment(x) for x in X], dtype='object')
 
-        # nans and infs to 0 and float.max, to prevent librosa crash
-        X = [np.nan_to_num(x.astype(float)) for x in X]
         # Normalize to -1, 1
         X = [x / np.max(np.abs(x)) for x in X]
         # Pad to and cut off at 5 seconds
-        # todo: improve htis
         X = np.array([np.pad(x, (0, max(self.pad_to - len(x), 0)))[:self.pad_to] for x in X])
-
+        # nans and infs to 0 and float.max, to prevent librosa crash
+        X = np.nan_to_num(X.astype(float))
         # Load Short Time Fourier Transformas
         stft = np.abs([librosa.stft(np.array(x, dtype=float), n_fft=self.frame_length, hop_length=self.n_overlap) for x in X])
         stft = librosa.util.normalize(stft)
