@@ -319,8 +319,6 @@ class TrainSetGenerator(Sequence):
         # Change pitch by 1-5 with 35% prob
         if by_chance(35):
             factor = np.random.randint(1, 5)
-            if by_chance(50):
-                factor *= -1
             wav = librosa.effects.pitch_shift(wav, TrainSetGenerator.sample_rate, factor)
         # Stretch time by .75 - 1.25 with 40% prob
         if by_chance(40):
@@ -346,7 +344,7 @@ class TrainSetGenerator(Sequence):
             X = np.array([self.__augment(x) for x in X], dtype='object')
 
         # nans and infs to 0 and float.max, to prevent librosa crash
-        np.nan_to_num(X, False)
+        X = np.nan_to_num(X.astype(float))
         # Normalize to -1, 1
         X = [x / np.max(np.abs(x)) for x in X]
         # Pad to and cut off at 5 seconds
