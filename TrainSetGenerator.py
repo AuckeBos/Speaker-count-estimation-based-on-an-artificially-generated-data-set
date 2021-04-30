@@ -344,7 +344,8 @@ class TrainSetGenerator(Sequence):
         # Apply augmentation
         if self.augment:
             X = np.array([self.__augment(x) for x in X], dtype='object')
-
+        # nans and infs to 0 and float.max, to prevent librosa crash
+        X = np.array([np.nan_to_num(x, False) for x in X], dtype='object')
         # Normalize to -1, 1
         X = [x / np.max(np.abs(x)) for x in X]
         # Pad to and cut off at 5 seconds

@@ -178,12 +178,12 @@ class Experimenter:
         """
         Test the networks saved by run()
         """
-        train_x_max_10, train_y_max_10, test_x_max_10, test_y_max_10 = self.__load_timit(1, 10)
-        train_x_max_20, train_y_max_20, test_x_max_20, test_y_max_20 = self.__load_timit(1, 20)
+        test_x_max_10, test_y_max_10 = self.__load_timit_test(1, 10)
+        test_x_max_20, test_y_max_20 = self.__load_timit_test(1, 20)
         libri_x, libri_y = self.__load_libri()
-        for train_set in ['train_max_10', 'train_max_20']:
+        for train_set in ['1_10', '1_20']:
             for feature_type in self.feature_options:
-                name = f'./trained_networks/rnn_{train_set}/{feature_type}'
+                name = f'./trained_networks_with_generators/rnn_{train_set}/{feature_type}'
                 network = RNN()
                 network.load_from_file(name)
                 errors_max_10 = network.test(test_x_max_10, test_y_max_10, feature_type)

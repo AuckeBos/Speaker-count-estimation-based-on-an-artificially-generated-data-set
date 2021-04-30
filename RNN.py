@@ -27,8 +27,8 @@ class RNN:
     """
 
     # Training configuration
-    batch_size = 64
-    num_epochs = 80
+    batch_size = 5
+    num_epochs = 50
     tensorboard_log = f'./tensorboard/{datetime.now().strftime("%m-%d %H:%M")}/'
 
     # Training callbacks
@@ -140,13 +140,13 @@ class RNN:
         # Train generator: Duplicate all files 5 times
         train_generator = TrainSetGenerator(train_files, self.batch_size, feature_type)
         train_generator.set_limits(min_speakers, max_speakers)
-        # train_generator.set_num_files_to_merge(5 * len(train_files))
+        train_generator.set_num_files_to_merge(5 * len(train_files))
 
         # Validation generator: Duplicate all files 2 times
         validation_generator = TrainSetGenerator(validation_files, self.batch_size, feature_type)
         validation_generator.set_limits(min_speakers, max_speakers)
         validation_generator.augment = False
-        # validation_generator.set_num_files_to_merge(2 * len(validation_files))
+        validation_generator.set_num_files_to_merge(2 * len(validation_files))
         # Generate a full set
         validation_set = list(validation_generator.__iter__())[0]
         val_x, val_y = validation_set[0], validation_set[1]
