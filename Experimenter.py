@@ -151,37 +151,35 @@ class Experimenter:
         :param file: experiments.json
         """
         # Load results
-        content = None
         with open(file) as json_file:
             content = json.load(json_file)
-        # fig, axs = plt.subplots(2)
-        for fig_i, train_set in enumerate(['train_1_10', 'train_1_20']):
-            plt.figure(fig_i)
-            # axs[fig_i].title(train_set)
-            data = content[train_set]
-            for feature in self.feature_options:
-                color = np.random.rand(3, )
-                feature_data = data[feature]
-                x, y = [], []
-                for i in range(1, 21):
-                    if str(i) in feature_data['1_to_20']:
-                        x.append(i)
-                        y.append(feature_data['1_to_20'][str(i)])
-                # mae_mean = feature_data['1_to_20']['1_to_10']
-                plt.plot(x, y, label=feature, c=color)
-                # plt.plot(mae_mean, 'o', c=color)
-            plt.title(train_set)
-            plt.ylabel('MAE')
-            plt.xlabel('Max number of speakers')
-            plt.legend(loc='upper right')
-            plt.ylim(0, 10)
-
-        # plt.title('MAE by feature representation, trained on 1-10')
-        plt.ylabel('MAE')
-        plt.ylim(0, 10)
-        plt.xlabel('Max number of speakers')
-        plt.legend(loc='upper right')
-        plt.show()
+        # for fig_i, test_set in enumerate(['libri', '1_to_10', '1_to_20']):
+        #     plt.figure()
+        #     for feature in [TrainSetGenerator.FEATURE_TYPE_STFT, TrainSetGenerator.FEATURE_TYPE_MFCC]:
+        #         data = content[train_set]
+        #     for feature in self.feature_options:
+        #         color = np.random.rand(3, )
+        #         feature_data = data[feature]
+        #         x, y = [], []
+        #         for i in range(1, 21):
+        #             if str(i) in feature_data['1_to_20']:
+        #                 x.append(i)
+        #                 y.append(feature_data['1_to_20'][str(i)])
+        #         # mae_mean = feature_data['1_to_20']['1_to_10']
+        #         plt.plot(x, y, label=feature, c=color)
+        #         # plt.plot(mae_mean, 'o', c=color)
+        #     plt.title(train_set)
+        #     plt.ylabel('MAE')
+        #     plt.xlabel('Max number of speakers')
+        #     plt.legend(loc='upper right')
+        #     plt.ylim(0, 10)
+        #
+        # # plt.title('MAE by feature representation, trained on 1-10')
+        # plt.ylabel('MAE')
+        # plt.ylim(0, 10)
+        # plt.xlabel('Max number of speakers')
+        # plt.legend(loc='upper right')
+        # plt.show()
 
     def feature_comparison_csv(self, filename):
         with open(filename) as file:
@@ -223,9 +221,10 @@ class Experimenter:
         """
         data = self.__get_test_data()
         result = {}
-        for feature_type in self.feature_options:
-            result_for_feature = {}
-            for (min_speakers, max_speakers) in [[1, 10], [1, 20]]:
+        for (min_speakers, max_speakers) in [[1, 10], [1, 20]]:
+            result_for_trainset = {}
+            for feature_type in self.feature_options:
+                result_for_feature = {}
                 # Load best performing model
                 network = RNN()
                 name = f'./trained_networks_with_augmentation/rnn_train_{min_speakers}_{max_speakers}/{feature_type}'
@@ -236,7 +235,8 @@ class Experimenter:
                     x, y = test_data_current['x'], test_data_current['y']
                     result_for_feature[test_name] = self.__test_net(network, x, y, feature_type)
 
-                result[feature_type] = result_for_feature
+                result_for_trainset[feature_type] = result_for_feature
+            result[f'train_{min_speakers}_{max_speakers}'] = result_for_trainset
         with open('testing_networks_result.json', 'w+') as fp:
             json.dump(result, fp)
         return result
