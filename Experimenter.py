@@ -9,14 +9,21 @@ from DataLoader import DataLoader
 from RNN import RNN
 from TrainSetGenerator import TrainSetGenerator
 from scipy import stats
+from matplotlib import rc
 
 
 def flatten(S):
+    """
+    Helper function to recursively flatten a list
+    :param S:  The nested list
+    :return:  The flattened list
+    """
     if S == []:
         return S
     if isinstance(S[0], list):
         return flatten(S[0]) + flatten(S[1:])
     return S[:1] + flatten(S[1:])
+
 
 class Experimenter:
     train_dir = './data/TIMITS/TIMIT/wavfiles16kHz/TRAIN'
@@ -147,47 +154,48 @@ class Experimenter:
 
     def visualize(self, file: str):
         """
-        Plot results of run()
+        Visualize results as needed for Section 6.2 of the paper
         :param file: experiments.json
         """
         # Load results
+        rc('text', usetex=True)
         with open(file) as json_file:
             content = json.load(json_file)
-        # for fig_i, test_set in enumerate(['libri', '1_to_10', '1_to_20']):
-        #     plt.figure()
-        #     for feature in [TrainSetGenerator.FEATURE_TYPE_STFT, TrainSetGenerator.FEATURE_TYPE_MFCC]:
-        #         data = content[train_set]
-        #     for feature in self.feature_options:
-        #         color = np.random.rand(3, )
-        #         feature_data = data[feature]
-        #         x, y = [], []
-        #         for i in range(1, 21):
-        #             if str(i) in feature_data['1_to_20']:
-        #                 x.append(i)
-        #                 y.append(feature_data['1_to_20'][str(i)])
-        #         # mae_mean = feature_data['1_to_20']['1_to_10']
-        #         plt.plot(x, y, label=feature, c=color)
-        #         # plt.plot(mae_mean, 'o', c=color)
-        #     plt.title(train_set)
-        #     plt.ylabel('MAE')
-        #     plt.xlabel('Max number of speakers')
-        #     plt.legend(loc='upper right')
-        #     plt.ylim(0, 10)
-        #
-        # # plt.title('MAE by feature representation, trained on 1-10')
-        # plt.ylabel('MAE')
-        # plt.ylim(0, 10)
-        # plt.xlabel('Max number of speakers')
-        # plt.legend(loc='upper right')
-        # plt.show()
+        titles = ['Trained on $C_{TR10}$', 'Trained on $C_{TR20}$']
+        for title, (min_speakers, max_speakers) in zip(titles, [(1, 10), (1, 20)]):
+            plt.figure()
+            ax = plt.gca()
+            colors = ['#f0a804', '#FFDB37', '#0014cc', '#4D61FF']
+            legends = ['LOG\_STFT $C_{te10}$', 'LOG\_STFT $L_{te10}$', 'MFCC $C_{te10}$', 'MFCC $L_{te10}$', ]
+            x = [str(i) for i in range(1, 11)]
+            ys = []
+            for feature_type in [TrainSetGenerator.FEATURE_TYPE_LOG_STFT, TrainSetGenerator.FEATURE_TYPE_MFCC]:
+                data = content[f'train_{min_speakers}_{max_speakers}'][feature_type]
+                for set in ['1_to_10', 'libri']:
+                    ys.append([data[set][i] for i in x])
+            for legend, color, y in zip(legends, colors, ys):
+                plt.plot(x, y, label=legend, color=color)
+
+            plt.title(title)
+            plt.ylabel('MAE')
+            plt.xlabel('Label')
+            plt.legend(loc='upper right')
+            plt.ylim(0, 10)
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False)
+        plt.show()
 
     def feature_comparison_csv(self, filename):
+        """
+        Generate a comparison csv, as needed for Section 6.1 of the paper
+        :param filename:  The file comparison.json
+        """
         with open(filename) as file:
             content = json.load(file)
         file = open('feature_comparison.csv', 'w', newline='')
         writer = csv.writer(file, delimiter=';')
         values_to_compare = ['MAE C_{tr}', 'MAE C_{va}', 'Loss_{tr}', 'Loss_{va}', 'LR', 's / Epoch', '#Epochs']
-        writer.writerow([''] + flatten([[v,v] for v in values_to_compare]))
+        writer.writerow([''] + flatten([[v, v] for v in values_to_compare]))
         writer.writerow([''] + [10, 20] * len(values_to_compare))
         feature_types = TrainSetGenerator.FEATURE_OPTIONS
         for feature_type in feature_types:
@@ -202,7 +210,6 @@ class Experimenter:
             writer.writerow(row)
         file.close()
 
-
     def __mean_wo_outliers(self, data):
         """
         Get the mean of list of values, exluding outliers. Used to compute mean LR
@@ -211,13 +218,12 @@ class Experimenter:
         """
         # data =
         z_scores = stats.zscore(data)
-        valid_values = np.array(data)[[i for i,x in enumerate(z_scores) if z_scores[i] > -.5 and z_scores[i] < 0]]
+        valid_values = np.array(data)[[i for i, x in enumerate(z_scores) if z_scores[i] > -.5 and z_scores[i] < 0]]
         return np.mean(valid_values)
-
 
     def test_networks(self):
         """
-        Test the networks saved by run()
+        Test the networks saved by run().
         """
         data = self.__get_test_data()
         result = {}
