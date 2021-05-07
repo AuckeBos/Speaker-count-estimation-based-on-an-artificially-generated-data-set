@@ -67,8 +67,8 @@ class DataLoader:
         files = glob.glob(dir + '/*.wav')
         X, Y = [], []
         for file in files:
-            filename = os.path.basename(file)
-            y = int(filename[0])
+            y, _ = os.path.basename(file).split('_')
+            y = int(y)
             # Skip recordings w/o speakers
             if y == 0:
                 continue
