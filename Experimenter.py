@@ -1,5 +1,6 @@
 import glob
 import json
+import csv
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,7 +8,15 @@ import numpy as np
 from DataLoader import DataLoader
 from RNN import RNN
 from TrainSetGenerator import TrainSetGenerator
+from scipy import stats
 
+
+def flatten(S):
+    if S == []:
+        return S
+    if isinstance(S[0], list):
+        return flatten(S[0]) + flatten(S[1:])
+    return S[:1] + flatten(S[1:])
 
 class Experimenter:
     train_dir = './data/TIMITS/TIMIT/wavfiles16kHz/TRAIN'
@@ -155,9 +164,9 @@ class Experimenter:
                 feature_data = data[feature]
                 x, y = [], []
                 for i in range(1, 21):
-                    if str(i) in feature_data['1_to_10']:
+                    if str(i) in feature_data['1_to_20']:
                         x.append(i)
-                        y.append(feature_data['1_to_10'][str(i)])
+                        y.append(feature_data['1_to_20'][str(i)])
                 # mae_mean = feature_data['1_to_20']['1_to_10']
                 plt.plot(x, y, label=feature, c=color)
                 # plt.plot(mae_mean, 'o', c=color)
@@ -174,21 +183,63 @@ class Experimenter:
         plt.legend(loc='upper right')
         plt.show()
 
+    def feature_comparison_csv(self, filename):
+        with open(filename) as file:
+            content = json.load(file)
+        file = open('feature_comparison.csv', 'w', newline='')
+        writer = csv.writer(file, delimiter=';')
+        values_to_compare = ['MAE C_{tr}', 'MAE C_{va}', 'Loss_{tr}', 'Loss_{va}', 'LR', 's / Epoch', '#Epochs']
+        writer.writerow([''] + flatten([[v,v] for v in values_to_compare]))
+        writer.writerow([''] + [10, 20] * len(values_to_compare))
+        feature_types = TrainSetGenerator.FEATURE_OPTIONS
+        for feature_type in feature_types:
+            row = [feature_type]
+            for measure in ['mean_absolute_error', 'val_mean_absolute_error', 'loss', 'val_loss', 'lr']:
+                for train_type in ['train_1_10', 'train_1_20']:
+                    row.append(min(content[train_type][feature_type]['history'][measure]))
+            row.append(self.__mean_wo_outliers(content['train_1_10'][feature_type]['history']['timer']))
+            row.append(self.__mean_wo_outliers(content['train_1_20'][feature_type]['history']['timer']))
+            row.append(len(content['train_1_10'][feature_type]['history']['timer']))
+            row.append(len(content['train_1_20'][feature_type]['history']['timer']))
+            writer.writerow(row)
+        file.close()
+
+
+    def __mean_wo_outliers(self, data):
+        """
+        Get the mean of list of values, exluding outliers. Used to compute mean LR
+        :param data:  The datapoint
+        :return:  The mean
+        """
+        # data =
+        z_scores = stats.zscore(data)
+        valid_values = np.array(data)[[i for i,x in enumerate(z_scores) if z_scores[i] > -.5 and z_scores[i] < 0]]
+        return np.mean(valid_values)
+
+
     def test_networks(self):
         """
         Test the networks saved by run()
         """
-        test_x_max_10, test_y_max_10 = self.__load_timit_test(1, 10)
-        test_x_max_20, test_y_max_20 = self.__load_timit_test(1, 20)
-        libri_x, libri_y = self.__load_libri()
-        for train_set in ['1_10', '1_20']:
-            for feature_type in self.feature_options:
-                name = f'./trained_networks_with_generators/rnn_{train_set}/{feature_type}'
+        data = self.__get_test_data()
+        result = {}
+        for feature_type in self.feature_options:
+            result_for_feature = {}
+            for (min_speakers, max_speakers) in [[1, 10], [1, 20]]:
+                # Load best performing model
                 network = RNN()
+                name = f'./trained_networks_with_augmentation/rnn_train_{min_speakers}_{max_speakers}/{feature_type}'
                 network.load_from_file(name)
-                errors_max_10 = network.test(test_x_max_10, test_y_max_10, feature_type)
-                errors_max_20 = network.test(test_x_max_20, test_y_max_20, feature_type)
-                errors_max_libri = network.test(libri_x, libri_y, feature_type)
+
+                # Test performance
+                for test_name, test_data_current in data.items():
+                    x, y = test_data_current['x'], test_data_current['y']
+                    result_for_feature[test_name] = self.__test_net(network, x, y, feature_type)
+
+                result[feature_type] = result_for_feature
+        with open('testing_networks_result.json', 'w+') as fp:
+            json.dump(result, fp)
+        return result
 
     def __load_timit_test(self, min_count, max_count):
         """
