@@ -152,30 +152,67 @@ class Experimenter:
             }
         return data
 
-    def visualize(self, file: str):
+    def visualize_newset_generalization(self, file:str):
+        """
+        Visualize results as needed for Section 6.3 of the paper
+        :param file: experiments.json
+        """
+        # Load results
+        with open(file) as json_file:
+            content = json.load(json_file)
+        rc('text', usetex=True)
+        titles = ['Trained on $C_{TR10}$', 'Trained on $C_{TR20}$']
+        for title, (min_speakers, max_speakers) in zip(titles, [(1, 10), (1, 20)]):
+            plt.figure(dpi=200)
+            ax = plt.gca()
+            colors = ['#f0a804', '#FFDB37', '#0014cc', '#4D61FF']
+            legends = ['$C_{te10}$ LOG\_STFT', '$C_{te10}$ MFCC', '$C_{te20}$ LOG\_STFT', '$C_{te20}$ MFCC', ]
+            x = [str(i) for i in range(1, 21)]
+            xs = []
+            ys = []
+            mean_maes = []
+            for set in ['1_to_10', '1_to_20']:
+                for feature_type in [TrainSetGenerator.FEATURE_TYPE_LOG_STFT, TrainSetGenerator.FEATURE_TYPE_MFCC]:
+                    data = content[f'train_{min_speakers}_{max_speakers}'][feature_type][set]
+                    ys.append([data[i] for i in x if i in data])
+                    mean_maes.append(data['1_to_20'])
+            for legend, color, y, mean_mae in zip(legends, colors, ys, mean_maes):
+                plt.plot(x[:len(y)], y, label=legend, color=color)
+                plt.scatter(9.5, mean_mae, color=color, zorder=10)
+            plt.title(title)
+            plt.ylabel('MAE')
+            plt.xlabel('Label')
+            plt.legend(loc='upper right')
+            plt.ylim(0, 10)
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False)
+        plt.show()
+    def visualize_libricount_generalization(self, file: str):
         """
         Visualize results as needed for Section 6.2 of the paper
         :param file: experiments.json
         """
         # Load results
-        rc('text', usetex=True)
         with open(file) as json_file:
             content = json.load(json_file)
+        rc('text', usetex=True)
         titles = ['Trained on $C_{TR10}$', 'Trained on $C_{TR20}$']
         for title, (min_speakers, max_speakers) in zip(titles, [(1, 10), (1, 20)]):
-            plt.figure()
+            plt.figure(dpi=200)
             ax = plt.gca()
             colors = ['#f0a804', '#FFDB37', '#0014cc', '#4D61FF']
-            legends = ['LOG\_STFT $C_{te10}$', 'LOG\_STFT $L_{te10}$', 'MFCC $C_{te10}$', 'MFCC $L_{te10}$', ]
+            legends = ['$C_{te10}$ LOG\_STFT', '$C_{te10}$ MFCC', '$L_{te10}$ LOG\_STFT', '$L_{te10}$ MFCC', ]
             x = [str(i) for i in range(1, 11)]
             ys = []
-            for feature_type in [TrainSetGenerator.FEATURE_TYPE_LOG_STFT, TrainSetGenerator.FEATURE_TYPE_MFCC]:
-                data = content[f'train_{min_speakers}_{max_speakers}'][feature_type]
-                for set in ['1_to_10', 'libri']:
-                    ys.append([data[set][i] for i in x])
-            for legend, color, y in zip(legends, colors, ys):
+            mean_maes = []
+            for set in ['1_to_10', 'libri']:
+                for feature_type in [TrainSetGenerator.FEATURE_TYPE_LOG_STFT, TrainSetGenerator.FEATURE_TYPE_MFCC]:
+                    data = content[f'train_{min_speakers}_{max_speakers}'][feature_type][set]
+                    ys.append([data[i] for i in x])
+                    mean_maes.append(data['1_to_10'])
+            for legend, color, y, mean_mae in zip(legends, colors, ys, mean_maes):
                 plt.plot(x, y, label=legend, color=color)
-
+                plt.scatter(4.5, mean_mae, color=color, zorder=10)
             plt.title(title)
             plt.ylabel('MAE')
             plt.xlabel('Label')
