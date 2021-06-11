@@ -128,12 +128,13 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Exclude data dirs
+# Exclude custom project files
 data
-
-# Exclude idea
 .idea
 tensorboard
 *.npy
+*.json
+experimenter_output
 experiments.json
 trained_networks
+plots

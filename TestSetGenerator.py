@@ -13,7 +13,7 @@ class TestSetGenerator(TrainSetGenerator):
     """
     The TestSetGenerator consumes pre-merged files. Provided X is a list of merged files, Y a corresponding list of labels.
     Extends TrainSetGenerator, since it used many of its functionality
-    The main difference is the generation of datapoints: We have pre-merged files, and thus do not need to merge them ourselves
+    The main difference is the generation of data points: We have pre-merged files, and thus do not need to merge them ourselves
     """
     # list of filenames
     x: np.ndarray
@@ -30,7 +30,6 @@ class TestSetGenerator(TrainSetGenerator):
         :param y: Corresponding list of speaker counts
         :param batch_size:  Batch size
         :param feature_type:  Type of features to use. See set_feature_type
-        :param shuffle:  If true, shuffle indices on epoch end
         """
         self.indices = np.arange(len(x))
         self.x = np.array(x)
@@ -49,7 +48,7 @@ class TestSetGenerator(TrainSetGenerator):
 
     def __len__(self):
         """
-        Use ceil to support the last, possible smaller, batch
+        Use ceil to support the last, possibly smaller, batch
         :return:
         """
         return int(math.ceil(len(self.indices) / float(self.batch_size)))

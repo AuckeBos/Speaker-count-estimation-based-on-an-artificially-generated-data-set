@@ -26,6 +26,11 @@ def flatten(S):
 
 
 class Experimenter:
+    """
+    Provides functions to run the experiments as described in Section 4 of the paper.
+    """
+
+    # Data directories
     train_dir = './data/TIMITS/TIMIT/wavfiles16kHz/TRAIN'
     test_dir = './data/TIMITS/TIMIT/wavfiles16kHz/TEST'
     libri_dir = './data/LibriCount/test'
@@ -72,7 +77,7 @@ class Experimenter:
 
                 experiment_for_trainset[feature_type] = experiment_for_feature
             experiments[f'train_{min_speakers}_{max_speakers}'] = experiment_for_trainset
-        with open('experiments_with_generator.json', 'w+') as fp:
+        with open('experiments.json', 'w+') as fp:
             json.dump(experiments, fp)
 
     def __train_net(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str, save_to: str):
@@ -126,7 +131,7 @@ class Experimenter:
     def __get_test_data(self):
         """
         The test data are actually X, Y, where X is a list of filenames with pre-merged wavs.
-        We pre-merge them, such that we have the same test set each time
+        We pre-merge them, such that we have the same test set each time. Are created and saved to FS using the DataLoader
         :return: {
             'test_set_type' : {
                 'x': pre-merged wav files
@@ -152,9 +157,9 @@ class Experimenter:
             }
         return data
 
-    def visualize_newset_generalization(self, file:str):
+    def visualize_newset_generalization(self, file: str):
         """
-        Visualize results as needed for Section 6.3 of the paper
+        Visualize results as needed for Section 5.3 of the paper
         :param file: experiments.json
         """
         # Load results
@@ -168,7 +173,6 @@ class Experimenter:
             colors = ['#f0a804', '#FFDB37', '#0014cc', '#4D61FF']
             legends = ['$C_{te10}$ LOG\_STFT', '$C_{te10}$ MFCC', '$C_{te20}$ LOG\_STFT', '$C_{te20}$ MFCC', ]
             x = [str(i) for i in range(1, 21)]
-            xs = []
             ys = []
             mean_maes = []
             for set in ['1_to_10', '1_to_20']:
@@ -187,9 +191,10 @@ class Experimenter:
             ax.spines['right'].set_visible(False)
             ax.spines['top'].set_visible(False)
         plt.show()
+
     def visualize_libricount_generalization(self, file: str):
         """
-        Visualize results as needed for Section 6.2 of the paper
+        Visualize results as needed for Section 5.2 of the paper
         :param file: experiments.json
         """
         # Load results
@@ -224,8 +229,8 @@ class Experimenter:
 
     def feature_comparison_csv(self, filename):
         """
-        Generate a comparison csv, as needed for Section 6.1 of the paper
-        :param filename:  The file comparison.json
+        Generate a comparison csv, as needed for Section 5.1 of the paper
+        :param filename:  The file comparison.json, created by Experimenter.run()
         """
         with open(filename) as file:
             content = json.load(file)
@@ -249,7 +254,8 @@ class Experimenter:
 
     def __mean_wo_outliers(self, data):
         """
-        Get the mean of list of values, exluding outliers. Used to compute mean LR
+        Get the mean of list of values, excluding outliers. Used to compute mean time per epoch. Outliers occur
+        due to waiting times on the server, we do not want to include this in the computation of the mean.
         :param data:  The datapoint
         :return:  The mean
         """
@@ -260,7 +266,7 @@ class Experimenter:
 
     def test_networks(self):
         """
-        Test the networks saved by run().
+        Test the networks saved by run(). Save to json
         """
         data = self.__get_test_data()
         result = {}
@@ -280,7 +286,7 @@ class Experimenter:
 
                 result_for_trainset[feature_type] = result_for_feature
             result[f'train_{min_speakers}_{max_speakers}'] = result_for_trainset
-        with open('testing_networks_result.json', 'w+') as fp:
+        with open('experiment_networks_tested.json', 'w+') as fp:
             json.dump(result, fp)
         return result
 

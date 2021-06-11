@@ -14,7 +14,8 @@ class DataLoader:
     """
     Class responsible for loading filenames from filesystem
     - Can generate the CUSTOM_TIMIT dataset by merging wav files from TIMIT. This is used to generate TEST sets.
-    - Can load datasets from files. Datasets are simply lists of filenames and a corresponding list of speaker counts
+    - Can load datasets from files. Datasets are simply lists of filenames and a corresponding list of speaker counts.
+        these lists are used to generated merged WAV files in the TrainsetGenerator
     """
     # Location of data
     train_dir: str
@@ -134,8 +135,3 @@ class DataLoader:
             dest_filename = f'{dest_dir}/{i}.wav'
             with open(dest_filename, 'wb+') as dest_file:
                 wavfile.write(dest_file, self.sampled_at, partition.T)
-
-            # Normlize the resulting wav file, to avoid clipping
-            # wav = AudioSegment.from_file(dest_filename)
-            # wav = effects.normalize(wav)
-            # wav.export(dest_filename)

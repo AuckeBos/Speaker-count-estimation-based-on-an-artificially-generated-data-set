@@ -7,7 +7,6 @@ import tensorflow_probability as tfp
 from scipy.io import wavfile
 from tensorflow.keras.utils import Sequence
 
-import helpers
 from helpers import write_log
 
 tfd = tfp.distributions
@@ -27,14 +26,15 @@ class TrainSetGenerator(Sequence):
     The TrainSetGenerator generates batches for training and validation sets.
 
     - As input, we get only a list of unmerged files.
-    - We merge these files on the fly. The number of files that is merged defines the label, and is alway between self.min_speakers and self.max_speakers
-    - Since we merge randomly, we allow to duplicate the input list of files. This gives us more training data, and this data will most likely not contain duplicate files
+    - We merge these files on the fly. The number of files that is merged defines the label, and is always between self.min_speakers and self.max_speakers
+    - Since we merge randomly, we allow to duplicate the input list of files. This gives us more training data, and this data will most likely not contain duplicate files, since we merge them at random
     """
+
     # 5 seconds per file, at 16KhZ
-    seconds_per_record = 10
+    seconds_per_record = 5
     sample_rate = 16000
 
-    # For now, pad to and cut off at 10 seconds. Paddings are masked out in RNN
+    # For now, pad to and cut off at 5 seconds. Paddings are masked out in RNN
     pad_to = sample_rate * seconds_per_record
 
     # If feature_type is MELXX, num_mel_filters will be set to XX in set_feature_type()
@@ -97,11 +97,15 @@ class TrainSetGenerator(Sequence):
     # If true, apply augmentation
     augment = True
 
+    # Defines range to which we randomize the loudness of a wav file
+    normalize_wav_to_min = 50
+    normalize_wav_to_max = 70
+
     def __init__(self, files: np.ndarray, batch_size: int, feature_type: str, shuffle: bool = True):
         """
         Initialize Generator
         :param files: List of filenames
-        :param batch_size:  Batch size. The final batch may be smaller
+        :param batch_size:  Batch size.
         :param feature_type:  Type of features to use. See set_feature_type
         :param shuffle:  If true, shuffle indices on epoch end
         """
@@ -146,12 +150,12 @@ class TrainSetGenerator(Sequence):
         # Labels max to min
         available_labels = range(self.max_speakers, self.min_speakers - 1, -1)
         labels = []
-        while (sum(labels) != self.num_files_to_merge):
+        while sum(labels) != self.num_files_to_merge:
             for label in available_labels:
-                if (sum(labels) + label > self.num_files_to_merge):
+                if sum(labels) + label > self.num_files_to_merge:
                     continue
                 labels.append(label)
-        # Taken contains evenly distributed labels between [min, max], the sum is exactly equal to the number of available files
+        # labels contains evenly distributed labels between [min, max], the sum is exactly equal to the number of available files
         self.labels = np.array(labels)
 
     @staticmethod
@@ -216,7 +220,7 @@ class TrainSetGenerator(Sequence):
         """
         Get a batch
         - Get the labels for the batch
-        - Create datapoints for these labels, by poping files from the remaining files list and merging them
+        - Create datapoints for these labels, by popping files from the remaining files list and merging them
         :param batch_index: The batch index
         :return: x,y: ndarrays
         """
@@ -232,8 +236,8 @@ class TrainSetGenerator(Sequence):
     def __get_datapoint(self, speaker_count: int):
         """
         Get one datapoint:
-        - Load get the first speaker_count number of files
-        - Remove those failes from the remaining files
+        - Load the first speaker_count number of files
+        - Remove those files from the remaining files
         - Load the wav data of those files
         :param speaker_count: The number of files to merge
         :return: List containing wav data
@@ -245,7 +249,7 @@ class TrainSetGenerator(Sequence):
     def __merge_files(self, files):
         """
         Merge an amount of files into one numpy array
-        :param files:
+        :param files: The files to merge
         :return: List containing wav data
         """
         # Load ata
@@ -258,16 +262,22 @@ class TrainSetGenerator(Sequence):
         return data
 
     def __randomize_loudness(self, wav):
+        """
+        Randommize the loudness of a wav file such that it is in the desired range.
+        As in Section 4.3 of the paper
+        :param wav: The wav file
+        :return: Randomized wav file
+        """
         # Randomize to between 50-70 DB
-        normalize_to = np.random.uniform(50, 70)
+        normalize_to = np.random.uniform(self.normalize_wav_to_min, self.normalize_wav_to_max)
         # Calculate current loudness
         # First normalize, to make sure we taking a valid log
         wav = wav / np.max(np.abs(wav))
         loudness = 10 * math.log10(np.sum(wav ** 2) / float(len(wav) * 4 * 10 ** -10))
-        # Calc multiplier to use to get to the loudness of normalize_to
-        muliplier = 10 ** ((normalize_to - loudness) / float(20))
+        # Calculate multiplier to use to get to the loudness of normalize_to
+        multiplier = 10 ** ((normalize_to - loudness) / float(20))
         # Transform into the right loudness
-        wav = wav * muliplier
+        wav = wav * multiplier
         return wav
 
     def __use_stft(self):
@@ -306,9 +316,9 @@ class TrainSetGenerator(Sequence):
             wav = wav + 0.01 * noise
         # Shift by 1 sec with 25% prob
         if by_chance(25):
-            # Shift with on second
+            # Shift with one second
             shift = np.random.randint(TrainSetGenerator.sample_rate * 1)
-            if by_chance(50):
+            if by_chance(50):  # Left or right
                 shift *= -1
             wav = np.roll(wav, shift)
             # Set rest to zero

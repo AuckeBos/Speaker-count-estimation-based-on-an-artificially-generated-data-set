@@ -8,7 +8,6 @@ from sklearn.metrics import mean_absolute_error
 from tensorflow.python.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.python.keras.optimizer_v2.adam import Adam
 
-import helpers
 from TestSetGenerator import TestSetGenerator
 from TimingCallback import TimingCallback
 from TrainSetGenerator import TrainSetGenerator
@@ -27,8 +26,8 @@ class RNN:
     """
 
     # Training configuration
-    batch_size = 5
-    num_epochs = 50
+    batch_size = 128
+    num_epochs = 80
     tensorboard_log = f'./tensorboard/{datetime.now().strftime("%m-%d %H:%M")}/'
 
     # Training callbacks
@@ -43,7 +42,14 @@ class RNN:
     # To reproduce
     random_state = 1337
 
+    # Set num_files_to_merge on the train/validation generators to this value * len(set). We will re-use each file this number of times
+    use_train_files_times = 5
+    use_validation_files_times = 2
+
     def __init__(self):
+        """
+        Set callbacks on init
+        """
         tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.tensorboard_log)
         early_stopping = EarlyStopping(patience=15, verbose=1)
         reduce_lr_on_plateau = ReduceLROnPlateau(factor=.4, patience=7, verbose=1)
@@ -60,23 +66,21 @@ class RNN:
     def get_net(self, input_shape: tuple):
         """
         Get the network. We use a BiLSTM as described by Stöter et al.
-        Input shape: [batch_size, time_steps, n_features]
-        :param input_shape the input shape
+        :param input_shape the input shape:  [batch_size, time_steps, n_features]
         :return: The net
         """
         net = Sequential()
         net.add(InputLayer(input_shape=input_shape))
         # Mask the input
         net.add(Masking())
+        # Add BiLSTM layers
         net.add(Bidirectional(LSTM(30, activation='tanh', return_sequences=True, dropout=0.5)))
         net.add(Bidirectional(LSTM(20, activation='tanh', return_sequences=True, dropout=0.5)))
         net.add(Bidirectional(LSTM(40, activation='tanh', return_sequences=False, dropout=0.5)))
 
-        # net.add(GlobalMaxPool1D())
         net.add(Dense(20, activation='relu'))
         # The network predicts scale parameter \lambda for the poisson distribution
         net.add(Dense(1, activation='exponential'))
-        # net.add(tfp.layers.DistributionLambda(tfd.Poisson))
 
         return net
 
@@ -92,6 +96,7 @@ class RNN:
     @staticmethod
     def poisson(y_true, y_hat):
         """
+        [Deprecated] - we se keras.losses.Poisson() instead
         Since we are predicting a Poisson distribution, our loss function is the poisson loss
         :param y_true: Number of speakers
         :param y_hat: Lambda for poisson
@@ -114,18 +119,13 @@ class RNN:
         self.__net = net
         return self.__net
 
-    # todo
-    @staticmethod
-    def poisson_loss(y_true, y_hat):
-        return -y_hat.log_prob(y_true)
-
     def __get_train_data(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str):
         """
         Get train generator and validation set
-        - We create a set for validation instead of a generator, such taht we validate on the same set each time
+        - We create a set for validation instead of a generator, such that we validate on the same set each time
         - This also speeds up validation during the training loop drastically, since we only preprocess the validation set once
 
-        :param files:  All files, will be split .8, 0.2 train,val
+        :param files:  All files, will be split .8/0.2 for train/val
         :param min_speakers:  The min number of speakers to generate files for
         :param max_speakers: The max number of speakers to generate files for
         :param feature_type: The feature type
@@ -137,28 +137,28 @@ class RNN:
         train_files = files[:split_index]
         validation_files = files[split_index:]
 
-        # Train generator: Duplicate all files 5 times
+        # Train generator
         train_generator = TrainSetGenerator(train_files, self.batch_size, feature_type)
         train_generator.set_limits(min_speakers, max_speakers)
-        train_generator.set_num_files_to_merge(5 * len(train_files))
+        train_generator.set_num_files_to_merge(self.use_train_files_times * len(train_files))
 
-        # Validation generator: Duplicate all files 2 times
+        # Validation generator
         validation_generator = TrainSetGenerator(validation_files, self.batch_size, feature_type)
         validation_generator.set_limits(min_speakers, max_speakers)
+        # No augmentation on the validation set
         validation_generator.augment = False
-        validation_generator.set_num_files_to_merge(2 * len(validation_files))
+        validation_generator.set_num_files_to_merge(self.use_validation_files_times * len(validation_files))
         # Generate a full set
         validation_set = list(validation_generator.__iter__())[0]
         val_x, val_y = validation_set[0], validation_set[1]
-
 
         return train_generator, (val_x, val_y)
 
     def train(self, files: np.ndarray, min_speakers: int, max_speakers: int, feature_type: str):
         """
         Train the network, eg
-        - Preprocess the data
-        - Train with Adam, negative log likelihood, accuracy metric.
+        - Create data generators
+        - Train with Adam, Poisson loss, MeanAbsoluteError metric.
         - Visualize using Tensorboard
         :param files: All files
         :param min_speakers The min number of speakers to generate files for
@@ -178,7 +178,7 @@ class RNN:
         write_log('Model trained')
         return net, history
 
-    def test(self, X: np.ndarray, Y: np.ndarray, feature_type: str, plot_result = False):
+    def test(self, X: np.ndarray, Y: np.ndarray, feature_type: str, plot_result=False):
         """
         Test the network:
         - Compute the MAE for each count in Y
@@ -205,9 +205,6 @@ class RNN:
             y_current = Y[indices_with_count]
             predictions_current = predictions[indices_with_count]
             error = mean_absolute_error(y_current, predictions_current)
-            average_prediction = np.mean(predictions_current)
-            raw_predictions = Y_hat[indices_with_count]
-            test = mean_absolute_error([speaker_count] * len(predictions_current), predictions_current)
             errors[speaker_count] = error
 
         for max_count in [10, 20]:
@@ -219,7 +216,11 @@ class RNN:
         return errors
 
     def __plot_test_results(self, errors):
-        x,y=[],[]
+        """
+        Create plot of results of self.test()
+        :param errors: The errors computed in test()
+        """
+        x, y = [], []
         for i in range(1, 21):
             if i in errors:
                 x.append(i)
